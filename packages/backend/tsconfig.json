@@ -4,10 +4,7 @@
     "rootDir": "src",
     "outDir": "dist",
     "moduleResolution": "Bundler",
-    "types": ["node"],
-    "paths": {
-      "@nnm/shared": ["../shared/src/index.ts"]
-    }
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "tests"]

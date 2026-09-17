@@ -72,31 +72,55 @@ export interface DbCapabilities {
   serverVersion: string;
 }
 
-function wrap(executor: Queryable, root: () => Database): Database {
-  const db: Database = {
-    pool: (executor as { pool?: pg.Pool }).pool ?? (executor as unknown as pg.Pool),
-    query: (text, params) => executor.query(text, params),
-    async many(text, params) {
-      const result = await executor.query(text, params);
+/** Низкоуровневая функция выполнения запроса: пул или клиент в транзакции. */
+type RawQuery = <T extends pg.QueryResultRow>(
+  text: string,
+  params?: QueryParams,
+) => Promise<pg.QueryResult<T>>;
+
+/**
+ * Собрать объект Database поверх произвольного исполнителя запросов.
+ *
+ * Хелперы `one`/`maybeOne`/`many` описаны здесь один раз и одинаково
+ * работают и на пуле, и на клиенте внутри транзакции — благодаря этому
+ * репозитории пишутся без оглядки на то, выполняются они в транзакции
+ * или вне её.
+ */
+function buildDatabase(
+  raw: RawQuery,
+  pool: pg.Pool,
+  extras: Pick<Database, 'transaction' | 'capabilities' | 'close'>,
+): Database {
+  return {
+    pool,
+    query: raw,
+    async many<T extends pg.QueryResultRow = pg.QueryResultRow>(
+      text: string,
+      params?: QueryParams,
+    ): Promise<T[]> {
+      const result = await raw<T>(text, params);
       return result.rows;
     },
-    async maybeOne(text, params) {
-      const result = await executor.query(text, params);
+    async maybeOne<T extends pg.QueryResultRow = pg.QueryResultRow>(
+      text: string,
+      params?: QueryParams,
+    ): Promise<T | null> {
+      const result = await raw<T>(text, params);
       return result.rows[0] ?? null;
     },
-    async one(text, params) {
-      const result = await executor.query(text, params);
+    async one<T extends pg.QueryResultRow = pg.QueryResultRow>(
+      text: string,
+      params?: QueryParams,
+    ): Promise<T> {
+      const result = await raw<T>(text, params);
       const row = result.rows[0];
       if (!row) {
         throw new Error('Ожидалась одна строка, получено 0');
       }
       return row;
     },
-    transaction: (fn) => root().transaction(fn),
-    capabilities: () => root().capabilities(),
-    close: () => root().close(),
+    ...extras,
   };
-  return db;
 }
 
 export function createDatabase(config: AppConfig = getConfig()): Database {
@@ -117,71 +141,62 @@ export function createDatabase(config: AppConfig = getConfig()): Database {
 
   let capabilitiesCache: DbCapabilities | null = null;
 
-  const database: Database = {
-    pool,
-    query: (text, params) => pool.query(text, params),
-    async many(text, params) {
-      const result = await pool.query(text, params);
-      return result.rows;
-    },
-    async maybeOne(text, params) {
-      const result = await pool.query(text, params);
-      return result.rows[0] ?? null;
-    },
-    async one(text, params) {
-      const result = await pool.query(text, params);
-      const row = result.rows[0];
-      if (!row) {
-        throw new Error('Ожидалась одна строка, получено 0');
-      }
-      return row;
-    },
-    async transaction<T>(fn: (tx: Database) => Promise<T>): Promise<T> {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const result = await fn(wrap(client, () => database));
-        await client.query('COMMIT');
-        return result;
-      } catch (error) {
-        try {
-          await client.query('ROLLBACK');
-        } catch (rollbackError) {
-          logger.error({ err: rollbackError }, 'Не удалось выполнить ROLLBACK');
-        }
-        throw error;
-      } finally {
-        client.release();
-      }
-    },
-    async capabilities(): Promise<DbCapabilities> {
-      if (capabilitiesCache) return capabilitiesCache;
-      const row = await database.one<{
-        has_vector: boolean;
-        has_trgm: boolean;
-        has_unaccent: boolean;
-        version: string;
-      }>(
-        `SELECT
-           EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')    AS has_vector,
-           EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')   AS has_trgm,
-           EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'unaccent')  AS has_unaccent,
-           current_setting('server_version') AS version`,
-      );
-      capabilitiesCache = {
-        hasPgVector: row.has_vector,
-        hasPgTrgm: row.has_trgm,
-        hasUnaccent: row.has_unaccent,
-        serverVersion: row.version,
-      };
-      return capabilitiesCache;
-    },
-    async close() {
-      await pool.end();
-    },
+  const capabilities = async (): Promise<DbCapabilities> => {
+    if (capabilitiesCache) return capabilitiesCache;
+    const result = await pool.query<{
+      has_vector: boolean;
+      has_trgm: boolean;
+      has_unaccent: boolean;
+      version: string;
+    }>(
+      `SELECT
+         EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')   AS has_vector,
+         EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')  AS has_trgm,
+         EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'unaccent') AS has_unaccent,
+         current_setting('server_version') AS version`,
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Не удалось определить возможности PostgreSQL');
+
+    capabilitiesCache = {
+      hasPgVector: row.has_vector,
+      hasPgTrgm: row.has_trgm,
+      hasUnaccent: row.has_unaccent,
+      serverVersion: row.version,
+    };
+    return capabilitiesCache;
   };
 
-  return database;
+  const transaction = async <T>(fn: (tx: Database) => Promise<T>): Promise<T> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const txRaw: RawQuery = (text, params) =>
+        client.query(text, params as unknown[] | undefined) as never;
+      const tx = buildDatabase(txRaw, pool, { transaction, capabilities, close });
+      const result = await fn(tx);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.error({ err: rollbackError }, 'Не удалось выполнить ROLLBACK');
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
+  const close = async (): Promise<void> => {
+    await pool.end();
+  };
+
+  const poolRaw: RawQuery = (text, params) =>
+    pool.query(text, params as unknown[] | undefined) as never;
+
+  return buildDatabase(poolRaw, pool, { transaction, capabilities, close });
 }
 
 let singleton: Database | null = null;
