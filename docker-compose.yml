@@ -1,0 +1,64 @@
+# Локальная инфраструктура для разработки и небольшого self-hosted развёртывания.
+# Секреты берутся из `.env` (см. .env.example) и НЕ хранятся в этом файле.
+
+services:
+  postgres:
+    # Образ с расширением pgvector — используется для семантической дедупликации.
+    image: pgvector/pgvector:pg16
+    container_name: nnm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nnm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nnm}
+      POSTGRES_DB: ${POSTGRES_DB:-nnm}
+      # Русская локаль для корректной сортировки и полнотекстового поиска.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nnm} -d ${POSTGRES_DB:-nnm}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    # S3-совместимое хранилище медиа. Не публикуется наружу: бакет приватный,
+    # доступ к файлам — только через presigned URL от backend.
+    image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+    container_name: nnm-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Одноразовая инициализация приватного бакета.
+  minio-init:
+    image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-minioadmin} ${S3_SECRET_ACCESS_KEY:-minioadmin} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-nnm-media} &&
+      mc anonymous set none local/${S3_BUCKET:-nnm-media} &&
+      echo 'bucket ready (private)';
+      "
+    restart: 'no'
+
+volumes:
+  pgdata:
+  miniodata:

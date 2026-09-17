@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!packages/backend/src/**/*.key.ts
+secrets/
+.secrets/
+
+# runtime data
+storage/
+media-local/
+tmp/
+*.log
+logs/
+backups/
+coverage/
+.nyc_output/
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# test artifacts
+test-results/
+playwright-report/

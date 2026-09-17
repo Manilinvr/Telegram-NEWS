@@ -1,0 +1,41 @@
+{
+  "name": "novorossiysk-news-monitoring",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private news monitoring system for Novorossiysk — ingestion, event grouping, AI editorial drafts, moderation and Telegram publishing.",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/backend",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "build": "npm run build -w @nnm/shared && npm run build -w @nnm/backend && npm run build -w @nnm/frontend",
+    "dev": "concurrently -n api,worker,web -c cyan,magenta,green \"npm run dev -w @nnm/backend\" \"npm run dev:worker -w @nnm/backend\" \"npm run dev -w @nnm/frontend\"",
+    "dev:api": "npm run dev -w @nnm/backend",
+    "dev:worker": "npm run dev:worker -w @nnm/backend",
+    "dev:web": "npm run dev -w @nnm/frontend",
+    "migrate": "npm run migrate -w @nnm/backend",
+    "migrate:down": "npm run migrate:down -w @nnm/backend",
+    "seed": "npm run seed -w @nnm/backend",
+    "bootstrap:admin": "npm run bootstrap:admin -w @nnm/backend",
+    "test": "npm run test -w @nnm/shared && npm run test -w @nnm/backend",
+    "test:unit": "npm run test:unit -w @nnm/backend",
+    "test:integration": "npm run test:integration -w @nnm/backend",
+    "typecheck": "npm run typecheck -w @nnm/shared && npm run typecheck -w @nnm/backend && npm run typecheck -w @nnm/frontend",
+    "lint": "eslint packages --ext .ts,.tsx",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,css,json,md}\"",
+    "backup": "bash scripts/backup.sh",
+    "restore": "bash scripts/restore.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.2"
+  }
+}
