@@ -150,7 +150,18 @@ const envSchema = z
     WORKER_MAX_ATTEMPTS: int(5),
     SOURCE_POLL_INTERVAL_SECONDS: int(60),
 
-    TELEGRAM_INGEST_MODE: z.enum(['bot', 'mtproto', 'none']).default('none'),
+    /**
+     * Способ чтения Telegram-каналов.
+     *
+     *  • public-preview — публичная страница t.me/s/<канал>, без ключей;
+     *  • bot — бот, добавленный в канал администратором (нужен токен);
+     *  • mtproto — пользовательский клиент (не реализован, см. LIMITATIONS);
+     *  • none — Telegram-источники отключены.
+     *
+     * Значение public-preview обязано быть в списке: адаптер для него
+     * реализован, и без него документированный режим не запускался.
+     */
+    TELEGRAM_INGEST_MODE: z.enum(['bot', 'mtproto', 'public-preview', 'none']).default('none'),
     TELEGRAM_BOT_TOKEN: optionalStr,
     TELEGRAM_API_ID: optionalStr,
     TELEGRAM_API_HASH: optionalStr,

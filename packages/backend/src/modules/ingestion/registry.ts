@@ -23,7 +23,7 @@ export class AdapterRegistry {
       // библиотеки; он объявлен в конфигурации, но здесь не реализован —
       // см. «Известные ограничения» в docs/LIMITATIONS.md.
       this.adapters.set('TELEGRAM', new TelegramPublicPreviewAdapter());
-    } else if (config.TELEGRAM_INGEST_MODE !== 'none') {
+    } else if (config.TELEGRAM_INGEST_MODE === 'public-preview') {
       this.adapters.set('TELEGRAM', new TelegramPublicPreviewAdapter());
     }
 

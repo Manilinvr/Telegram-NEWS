@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../../src/config/env.js';
 import { buildSslOptions } from '../../src/db/pool.js';
+import { AdapterRegistry } from '../../src/modules/ingestion/registry.js';
 
 /**
  * Конфигурация — единственное место, где установка соприкасается
@@ -103,5 +104,39 @@ describe('buildSslOptions: подключение к базе по TLS', () => {
         withSsl({ DATABASE_SSL_CA: pem, DATABASE_SSL_REJECT_UNAUTHORIZED: 'false' }),
       ),
     ).toEqual({ ca: pem, rejectUnauthorized: true });
+  });
+});
+
+describe('Режимы сбора Telegram', () => {
+  // Расхождение между документацией и списком допустимых значений
+  // не видно ни типами, ни сборкой: оно проявляется только на
+  // развёртывании, отказом запуска. Поэтому проверяется явно.
+  it('принимает public-preview — режим без ключей, описанный в документации', () => {
+    const config = loadConfig({ ...base, TELEGRAM_INGEST_MODE: 'public-preview' });
+    expect(config.TELEGRAM_INGEST_MODE).toBe('public-preview');
+  });
+
+  it('для public-preview не требует ни токена, ни api-ключей', () => {
+    expect(() => loadConfig({ ...base, TELEGRAM_INGEST_MODE: 'public-preview' })).not.toThrow();
+  });
+
+  it('в режиме public-preview адаптер Telegram зарегистрирован и готов', () => {
+    const registry = new AdapterRegistry(
+      loadConfig({ ...base, TELEGRAM_INGEST_MODE: 'public-preview' }),
+    );
+    const adapter = registry.get('TELEGRAM');
+    expect(adapter).not.toBeNull();
+    expect(adapter?.mode).toBe('public-preview');
+    expect(adapter?.isConfigured()).toBe(true);
+  });
+
+  it('по умолчанию Telegram-источники отключены', () => {
+    expect(new AdapterRegistry(loadConfig({ ...base })).get('TELEGRAM')).toBeNull();
+  });
+
+  it('режим bot без токена отвергается с понятным сообщением', () => {
+    expect(() => loadConfig({ ...base, TELEGRAM_INGEST_MODE: 'bot' })).toThrow(
+      /TELEGRAM_BOT_TOKEN/,
+    );
   });
 });

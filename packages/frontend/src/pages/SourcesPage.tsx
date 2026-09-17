@@ -110,7 +110,7 @@ export function SourcesPage() {
 
               <div className="field">
                 <label className="field__label" htmlFor="source-username">
-                  Имя канала или сообщества
+                  Адрес канала в ссылке
                 </label>
                 <input
                   id="source-username"
@@ -119,7 +119,14 @@ export function SourcesPage() {
                   onChange={(event) => setForm({ ...form, username: event.target.value })}
                   placeholder="novorossiysk_news"
                 />
-                <span className="field__hint">Без символа @</span>
+                {/* Раньше подписи «Имя канала» и «Без символа @» читались как
+                    название канала, и сюда вписывали «ЧП Новороссийск».
+                    Поэтому подсказка показывает разбор конкретной ссылки. */}
+                <span className="field__hint">
+                  Не название, а часть ссылки после t.me/ — например, из
+                  <code> t.me/chpnvrsk_official</code> сюда идёт
+                  <code> chpnvrsk_official</code>. Без @ и без https://
+                </span>
               </div>
 
               <div className="field">
