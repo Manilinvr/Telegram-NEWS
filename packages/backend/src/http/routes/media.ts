@@ -1,7 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
+import type { Database } from '../../db/pool.js';
 import { LocalStorageDriver, verifyMediaSignature, type StorageDriver } from '../../modules/storage/driver.js';
+import { JOB_TYPES, JobQueue } from '../../queue/queue.js';
+import { PIPELINE_STAGE } from '@nnm/shared';
+import { logger } from '../../lib/logger.js';
 
 /**
  * Отдача медиафайлов (ТЗ §22).
@@ -12,9 +16,10 @@ import { LocalStorageDriver, verifyMediaSignature, type StorageDriver } from '..
  */
 export default async function mediaRoutes(
   app: FastifyInstance,
-  options: { storage: StorageDriver; config: AppConfig },
+  options: { storage: StorageDriver; config: AppConfig; db: Database },
 ) {
-  const { storage } = options;
+  const { storage, db } = options;
+  const queue = new JobQueue(db);
 
   app.get('/media/*', async (request, reply) => {
     if (!(storage instanceof LocalStorageDriver)) {
@@ -38,7 +43,21 @@ export default async function mediaRoutes(
 
     const filePath = await storage.localPath?.(key);
     if (!filePath) {
-      return reply.code(404).send({ error: 'NOT_FOUND', message: 'Файл не найден.' });
+      // Файл записан в базе, но исчез с диска.
+      //
+      // Так бывает на хостингах с недолговечной файловой системой: Render
+      // на бесплатном тарифе выдаёт контейнеру чистый диск при каждой
+      // пересборке, а ссылки на скачанные ранее файлы остаются в базе, и
+      // вместо картинок в ленте появляются «битые» значки.
+      //
+      // Вместо того чтобы просто ответить 404, помечаем вложение к
+      // повторному скачиванию: при следующем открытии ленты картинка уже
+      // будет на месте, без ручного вмешательства.
+      await requeueMissingMedia(db, queue, key);
+      return reply.code(404).send({
+        error: 'NOT_FOUND',
+        message: 'Файл отсутствует на диске и поставлен в очередь на повторное скачивание.',
+      });
     }
 
     reply.header('cache-control', 'private, max-age=300');
@@ -67,4 +86,35 @@ function guessContentType(key: string): string {
     '.m4a': 'audio/mp4',
   };
   return map[ext] ?? 'application/octet-stream';
+}
+
+/**
+ * Пометить пропавший файл к повторному скачиванию.
+ *
+ * Исходный адрес вложения сохранён в базе, поэтому файл можно получить
+ * заново. Ошибки здесь намеренно не поднимаются наверх: отдача файла —
+ * не то место, где уместно падать из-за служебной операции.
+ */
+async function requeueMissingMedia(db: Database, queue: JobQueue, key: string): Promise<void> {
+  try {
+    const row = await db.maybeOne<{ id: string }>(
+      `UPDATE media
+          SET storage_key = NULL, thumbnail_key = NULL, download_status = 'NEW', download_error = NULL
+        WHERE (storage_key = $1 OR thumbnail_key = $1)
+          AND original_url IS NOT NULL
+        RETURNING id`,
+      [key],
+    );
+    if (!row) return;
+
+    await queue.enqueue({
+      type: JOB_TYPES.DOWNLOAD_MEDIA,
+      stage: PIPELINE_STAGE.MEDIA_PROCESSING,
+      payload: { mediaId: String(row.id) },
+      dedupeKey: `media:${String(row.id)}`,
+    });
+    logger.info({ mediaId: row.id }, 'Файл пропал с диска — поставлен на повторное скачивание');
+  } catch (error) {
+    logger.warn({ err: error, key }, 'Не удалось поставить пропавший файл на повторное скачивание');
+  }
 }

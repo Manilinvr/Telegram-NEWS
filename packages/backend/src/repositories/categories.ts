@@ -60,7 +60,44 @@ export class CategoriesRepository {
     return toRecord(row);
   }
 
-  /** Заполнить таблицу начальным набором категорий. */
+  /**
+   * Добавить недостающие категории, НЕ трогая существующие.
+   *
+   * Отличие от seedDefaults существенное: тот перезаписывает название,
+   * цвет и ключевые слова значениями по умолчанию, и на старте процесса
+   * это откатывало бы правки, сделанные в настройках. Здесь только
+   * вставка недостающего.
+   *
+   * Нужно потому, что справочник категорий — не пользовательские данные,
+   * а часть схемы по смыслу: на slug категории ссылается внешний ключ
+   * source_posts.category_slug. Пустой справочник означает, что разбор
+   * каждой публикации падает с нарушением этого ключа.
+   */
+  async ensureDefaults(): Promise<number> {
+    let inserted = 0;
+    for (const [index, category] of DEFAULT_CATEGORIES.entries()) {
+      const result = await this.db.query(
+        `INSERT INTO categories
+           (slug, title, color, emoji, default_importance, keywords, sort_order, is_active, is_system)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
+         ON CONFLICT (slug) DO NOTHING`,
+        [
+          category.slug,
+          category.title,
+          category.color ?? '#94a3b8',
+          category.emoji ?? '📰',
+          category.defaultImportance ?? 'MEDIUM',
+          category.keywords ?? [],
+          index * 10,
+          category.slug === 'other',
+        ],
+      );
+      inserted += result.rowCount ?? 0;
+    }
+    return inserted;
+  }
+
+  /** Заполнить таблицу начальным набором категорий, обновив существующие. */
   async seedDefaults(): Promise<number> {
     let count = 0;
     for (const [index, category] of DEFAULT_CATEGORIES.entries()) {

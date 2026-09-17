@@ -11,6 +11,7 @@ import { buildServer } from './http/server.js';
 import { liveBus } from './http/live.js';
 import { logger } from './lib/logger.js';
 import { migrateUp } from './db/migrator.js';
+import { ensureReferenceData } from './db/reference-data.js';
 import { Worker } from './workers/runtime.js';
 import { bootstrapOwner } from './modules/auth/bootstrap.js';
 
@@ -29,6 +30,19 @@ try {
     }
   } else {
     logger.info('Миграции при старте отключены (MIGRATE_ON_STARTUP=false)');
+  }
+
+  // Справочники дозаполняются всегда, а не по флагу: на categories.slug
+  // ссылается внешний ключ source_posts.category_slug, и пустой
+  // справочник означает, что разбор каждой публикации падает. Команду
+  // `npm run seed` на хостинге без доступа к командной строке выполнить
+  // негде, поэтому её обязательная часть выполняется здесь.
+  const reference = await ensureReferenceData(db, config);
+  if (reference.categoriesAdded > 0 || reference.settingsAdded.length > 0) {
+    logger.info(
+      { categories: reference.categoriesAdded, settings: reference.settingsAdded },
+      'Справочники дозаполнены',
+    );
   }
 
   // Создание владельца при первом запуске — для хостингов, где неудобно

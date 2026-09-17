@@ -81,7 +81,7 @@ export async function buildServer(config: AppConfig, db: Database): Promise<Fast
       await api.register(analyticsRoutes, { db, storage });
       await api.register(settingsRoutes, { db, config });
       await api.register(diagnosticsRoutes, { db, config });
-      await api.register(mediaRoutes, { storage, config });
+      await api.register(mediaRoutes, { storage, config, db });
       await api.register(liveRoutes);
     },
     { prefix: '/api' },
