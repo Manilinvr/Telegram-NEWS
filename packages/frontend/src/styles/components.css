@@ -471,6 +471,50 @@
   flex-direction: column;
 }
 
+/*
+ * Лента на главной ограничена по высоте и прокручивается внутри себя.
+ *
+ * Без этого панель растягивалась на всю длину ленты, и соседние блоки —
+ * карта и очередь на проверку — уезжали далеко вниз. На странице «Лента»
+ * и «Опубликованные» лента занимает всю страницу, поэтому ограничение
+ * вынесено в отдельный класс, а не навешано на .feed.
+ *
+ * Высота задана переменной: она рассчитана на четыре карточки, но
+ * карточки разной высоты, поэтому пятая частично видна — это и
+ * подсказывает, что список продолжается.
+ */
+.feed--boxed {
+  /* Замерено на реальной ленте: карточка 168–172px. 11rem = 176px даёт
+     четыре целых карточки и узкую полоску пятой сверху обрезки. */
+  --feed-card-height: 11rem;
+  max-height: calc(var(--feed-card-height) * 4);
+  overflow-y: auto;
+  /* Прокрутка ленты не перелистывает страницу, когда список кончился. */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.feed--boxed::-webkit-scrollbar {
+  width: 8px;
+}
+
+.feed--boxed::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.feed--boxed::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.feed--boxed::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: content-box;
+}
+
 .feed-card {
   display: flex;
   gap: var(--space-4);

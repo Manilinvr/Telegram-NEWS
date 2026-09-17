@@ -221,7 +221,7 @@ export function DashboardPage() {
               emptyTitle="По заданным фильтрам ничего не найдено"
               emptyHint="Измените период или снимите часть фильтров."
             >
-              <div className="feed">
+              <div className="feed feed--boxed">
                 {feed.data?.items.map((item) => (
                   <FeedCard
                     key={`${item.kind}-${item.id}`}
