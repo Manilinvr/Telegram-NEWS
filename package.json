@@ -29,7 +29,9 @@
     "format": "prettier --write \"packages/**/*.{ts,tsx,css,json,md}\"",
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh",
-    "build:supabase": "node scripts/build-supabase-migrations.mjs"
+    "build:supabase": "node scripts/build-supabase-migrations.mjs && node scripts/build-setup-sql.mjs",
+    "build:setup-sql": "node scripts/build-setup-sql.mjs",
+    "doctor": "npm run build -w @nnm/shared && npm run doctor -w @nnm/backend"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

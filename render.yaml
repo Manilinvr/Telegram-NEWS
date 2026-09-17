@@ -1,0 +1,40 @@
+# Развёртывание на Render одним файлом.
+#
+# Render читает его при подключении репозитория и сам создаёт сервис
+# с нужными командами. Руками останется задать только DATABASE_URL
+# (строка подключения Supabase) — остальное заполняется автоматически.
+#
+# Секреты здесь НЕ хранятся: generateValue просит Render сгенерировать
+# значение на своей стороне, sync: false — спросить его при создании.
+services:
+  - type: web
+    name: novorossiysk-news
+    runtime: node
+    plan: free
+    # Сборка ставит зависимости всех пакетов и собирает интерфейс,
+    # который затем отдаётся тем же процессом, что и API.
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -w @nnm/backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render выдаёт HTTPS сам, поэтому защищённая кука обязательна.
+      - key: COOKIE_SECURE
+        value: 'true'
+      # За обратным прокси Render реальный IP приходит в заголовке.
+      - key: TRUST_PROXY
+        value: 'true'
+      # Воркер внутри процесса API: для личной установки этого хватает,
+      # а бесплатный план Render не даёт второй сервис.
+      - key: RUN_WORKER_IN_API
+        value: 'true'
+      # Строка подключения к базе: Render спросит её при создании.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: 'true'
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CSRF_SECRET
+        generateValue: true

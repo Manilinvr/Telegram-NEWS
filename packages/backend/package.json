@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && node build-scripts/copy-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
@@ -21,7 +21,8 @@
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "seed:demo": "tsx src/scripts/seed-demo.ts",
-    "migrate:baseline": "tsx src/db/cli-migrate.ts baseline"
+    "migrate:baseline": "tsx src/db/cli-migrate.ts baseline",
+    "doctor": "tsx src/scripts/doctor.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

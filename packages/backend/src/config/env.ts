@@ -264,7 +264,16 @@ let cached: AppConfig | null = null;
 
 /** Разобрать конфигурацию. В production ошибки валидации останавливают старт. */
 export function loadConfig(overrides: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = envSchema.safeParse(overrides);
+  // Render, Railway, Fly и Heroku сами назначают порт и передают его
+  // в PORT, ожидая, что процесс слушает именно его. Свой API_PORT
+  // остаётся главным, но если задан только PORT — слушаем его,
+  // иначе платформа не дождётся ответа и пометит развёртывание упавшим.
+  const source: NodeJS.ProcessEnv =
+    overrides.API_PORT === undefined && overrides.PORT !== undefined
+      ? { ...overrides, API_PORT: overrides.PORT }
+      : overrides;
+
+  const parsed = envSchema.safeParse(source);
 
   if (!parsed.success) {
     const details = parsed.error.issues

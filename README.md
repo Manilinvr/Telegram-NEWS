@@ -79,9 +79,10 @@ npm run dev
 
 Панель откроется на <http://localhost:5173>, API — на порту 4000.
 
-Для развёртывания в интернете см. **[docs/DEPLOY.md](docs/DEPLOY.md)**:
-собранный интерфейс отдаётся тем же процессом, что и API, поэтому нужен
-один сервис и один адрес.
+Для развёртывания в интернете см. **[docs/INSTALL.md](docs/INSTALL.md)** —
+пошагово, от создания базы до входа в панель. Собранный интерфейс
+отдаётся тем же процессом, что и API, поэтому нужен один сервис и один
+адрес.
 
 ### Демонстрационные данные
 
@@ -107,10 +108,11 @@ npm run seed:demo -w @nnm/backend
 | `npm run migrate:down` | Откатить последнюю миграцию |
 | `npm run seed` | Категории и настройки по умолчанию |
 | `npm run bootstrap:admin` | Создать владельца (идемпотентно) |
+| `npm run doctor` | Проверить установку и показать, что чинить |
 | `npm test` | Все тесты |
 | `npm run typecheck` | Проверка типов, включая тесты |
 | `npm run migrate:baseline -w @nnm/backend` | Отметить миграции применёнными, не выполняя их |
-| `npm run build:supabase` | Пересобрать `supabase/migrations/` из исходных миграций |
+| `npm run build:supabase` | Пересобрать `supabase/migrations/` и `supabase/setup.sql` |
 | `npm run backup` / `npm run restore` | Резервное копирование БД |
 
 ---
@@ -119,7 +121,8 @@ npm run seed:demo -w @nnm/backend
 
 | Документ | О чём |
 |---|---|
-| **[docs/DEPLOY.md](docs/DEPLOY.md)** | **Запуск сайта с нуля — начните отсюда** |
+| **[docs/INSTALL.md](docs/INSTALL.md)** | **Пошаговая установка от нуля до рабочего сайта — начните отсюда** |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Варианты развёртывания подробно |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Устройство системы и принятые решения |
 | [docs/API.md](docs/API.md) | Описание HTTP API |
 | [docs/SETUP-SOURCES.md](docs/SETUP-SOURCES.md) | Подключение Telegram и VK |
