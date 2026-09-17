@@ -193,7 +193,7 @@ export function SourcesPage() {
             emptyTitle="Источники не добавлены"
             emptyHint="Добавьте первый Telegram-канал или сообщество VK, чтобы начать сбор новостей."
           >
-            <div className="list" style={{ padding: 'var(--space-2) 0' }}>
+            <div className="list list--boxed" style={{ padding: 'var(--space-2) 0' }}>
               {sources.data?.sources.map((source) => (
                 <div key={source.id} className="list-row" style={{ cursor: 'default' }}>
                   <span className="list-row__avatar" style={{ background: sourceColor(source.id) }}>

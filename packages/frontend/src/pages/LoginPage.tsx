@@ -44,8 +44,10 @@ export function LoginPage({ onSuccess }: { onSuccess: () => void }) {
             </svg>
           </div>
           <div>
-            <div className="auth__title">Новороссийск</div>
-            <div className="auth__subtitle">News monitoring</div>
+            <div className="auth__title brand">
+              Novo<span className="brand__accent">Today</span>
+            </div>
+            <div className="auth__subtitle">Новости Новороссийска</div>
           </div>
         </div>
 

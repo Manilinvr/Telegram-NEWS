@@ -253,6 +253,15 @@ export interface ModerationQueueItem {
   rejectionReason: string | null;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
+  /**
+   * Сведения о самом событии — чтобы список очереди можно было читать.
+   * Раньше строка показывала только «Событие 8fdc81d7», и выбрать
+   * материал для проверки, не открыв его, было невозможно.
+   */
+  eventTitle?: string | null;
+  categorySlug?: string | null;
+  categoryTitle?: string | null;
+  sourceTitles?: string[];
 }
 
 export interface Publication {

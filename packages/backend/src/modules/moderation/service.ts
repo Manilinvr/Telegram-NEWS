@@ -129,6 +129,53 @@ export class ModerationService {
     return { ok: true, item };
   }
 
+  /**
+   * Вернуть отклонённый материал в очередь.
+   *
+   * Отклонение не должно быть приговором: решение принимается быстро и
+   * бывает ошибочным, а сам материал, черновик и его правки никуда не
+   * делись. Возврат снимает отметку об отклонении и ставит запись обратно
+   * на проверку — дальше обычный путь, с одобрением и публикацией.
+   */
+  async restore(input: {
+    eventId: string;
+    user: User;
+    ipAddress: string | null;
+    userAgent: string | null;
+  }): Promise<{ ok: true; item: ModerationQueueItem } | { ok: false; message: string }> {
+    const current = await this.moderation.findByEvent(input.eventId);
+    if (!current) return { ok: false, message: 'Запись модерации не найдена.' };
+    if (current.status !== 'REJECTED') {
+      return { ok: false, message: 'Вернуть в очередь можно только отклонённый материал.' };
+    }
+
+    const item = await this.moderation.setStatus(input.eventId, 'PENDING', {
+      reviewedBy: input.user.id,
+      rejectionReason: null,
+    });
+    if (!item) return { ok: false, message: 'Запись модерации не найдена.' };
+
+    await this.events.setStatus(input.eventId, 'NEEDS_REVIEW');
+    await this.audit.log({
+      userId: input.user.id,
+      action: AUDIT_ACTIONS.MODERATION_RESTORED,
+      entityType: 'event',
+      entityId: input.eventId,
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent,
+      details: { previousReason: current.rejectionReason },
+    });
+    await this.ops.recordHistory({
+      entityType: 'event',
+      entityId: input.eventId,
+      stage: PIPELINE_STAGE.MODERATION,
+      status: 'PENDING',
+      message: 'Материал возвращён в очередь после отклонения',
+    });
+
+    return { ok: true, item };
+  }
+
   /** Взять материал в работу — чтобы двое не правили один текст. */
   async claim(eventId: string, user: User): Promise<ModerationQueueItem | null> {
     return this.moderation.setStatus(eventId, 'IN_REVIEW', { reviewedBy: user.id });

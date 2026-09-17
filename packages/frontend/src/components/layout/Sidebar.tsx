@@ -67,8 +67,13 @@ export function Sidebar({
           </svg>
         </div>
         <div className="sidebar__brand-text">
-          <div className="sidebar__title">NOVOROSSIYSK</div>
-          <div className="sidebar__subtitle">News monitoring</div>
+          {/* Двухцветное начертание: «Novo» — город, «Today» — сегодняшний
+              выпуск. Акцент только на второй половине, чтобы название
+              читалось как одно слово, а не как две надписи. */}
+          <div className="sidebar__title brand">
+            Novo<span className="brand__accent">Today</span>
+          </div>
+          <div className="sidebar__subtitle">Новости Новороссийска</div>
         </div>
       </div>
 

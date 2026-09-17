@@ -522,6 +522,41 @@
   background-clip: content-box;
 }
 
+/*
+ * Прокручиваемый список внутри панели.
+ *
+ * Панель с двумя десятками источников вытягивалась на несколько экранов,
+ * и до того, что под ней, приходилось долго листать. Список прокручивается
+ * внутри себя, как лента на главной.
+ */
+.list--boxed {
+  max-height: 26rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.list--boxed::-webkit-scrollbar {
+  width: 8px;
+}
+
+.list--boxed::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.list--boxed::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.list--boxed::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: content-box;
+}
+
 .feed-card {
   display: flex;
   gap: var(--space-4);

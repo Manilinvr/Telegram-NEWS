@@ -14,7 +14,7 @@ import { formatRelative, IMPORTANCE_LABELS, IMPORTANCE_TONE, MODERATION_STATUS_L
  * наверх, чтобы не потеряться в потоке.
  */
 export function ModerationPage() {
-  const [statusFilter, setStatusFilter] = useState<'pending' | 'blocked' | 'all'>('pending');
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'blocked' | 'rejected' | 'all'>('pending');
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
 
   const statuses =
@@ -22,7 +22,11 @@ export function ModerationPage() {
       ? ['PENDING', 'IN_REVIEW']
       : statusFilter === 'blocked'
         ? ['BLOCKED']
-        : undefined;
+        : // Отклонённые не пропадают: их видно отдельной вкладкой, откуда
+          // материал можно открыть, поправить и вернуть в работу.
+          statusFilter === 'rejected'
+          ? ['REJECTED']
+          : undefined;
 
   const queue = useModerationQueue(statuses);
   const categories = useCategories();
@@ -56,6 +60,7 @@ export function ModerationPage() {
               options={[
                 { value: 'pending', label: 'Ожидают' },
                 { value: 'blocked', label: 'Заблокированы' },
+                { value: 'rejected', label: 'Отклонённые' },
                 { value: 'all', label: 'Все' },
               ]}
             />
@@ -69,7 +74,7 @@ export function ModerationPage() {
             emptyTitle="Очередь пуста"
             emptyHint="Новые материалы появятся здесь автоматически после обработки."
           >
-            <div className="list" style={{ padding: 'var(--space-2) 0' }}>
+            <div className="list list--boxed" style={{ padding: 'var(--space-2) 0' }}>
               {queue.data?.items.map((item) => (
                 <button
                   key={item.id}
@@ -81,11 +86,21 @@ export function ModerationPage() {
                     {IMPORTANCE_LABELS[item.priority]}
                   </Badge>
                   <span className="list-row__body">
-                    <span className="list-row__title">Событие {item.eventId.slice(0, 8)}</span>
+                    <span className="list-row__title">
+                      {item.eventTitle || `Событие ${item.eventId.slice(0, 8)}`}
+                    </span>
                     <span className="list-row__meta">
-                      {item.blockedReason
-                        ? `Заблокировано: ${item.blockedReason}`
-                        : `Создано ${formatRelative(item.createdAt)}`}
+                      {[
+                        item.categoryTitle,
+                        item.sourceTitles?.length ? item.sourceTitles.join(', ') : null,
+                        item.blockedReason
+                          ? `Заблокировано: ${item.blockedReason}`
+                          : item.rejectionReason
+                            ? `Отклонено: ${item.rejectionReason}`
+                            : formatRelative(item.createdAt),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
                   </span>
                   <Badge

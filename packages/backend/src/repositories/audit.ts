@@ -19,6 +19,7 @@ export const AUDIT_ACTIONS = {
   DRAFT_REGENERATED: 'draft.regenerated',
   MODERATION_APPROVED: 'moderation.approved',
   MODERATION_REJECTED: 'moderation.rejected',
+  MODERATION_RESTORED: 'moderation.restored',
   PUBLISH_ATTEMPT: 'publish.attempt',
   PUBLISH_SUCCESS: 'publish.success',
   PUBLISH_BLOCKED: 'publish.blocked',

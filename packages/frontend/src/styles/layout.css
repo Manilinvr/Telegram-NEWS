@@ -59,6 +59,23 @@
   text-overflow: ellipsis;
 }
 
+/*
+ * Начертание названия.
+ *
+ * Плотная посадка букв и слегка отрицательный трекинг собирают
+ * «NovoToday» в одно слово; акцентом выделена только вторая половина —
+ * так название читается цельно, а не распадается на две надписи.
+ */
+.brand {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-transform: none;
+}
+
+.brand__accent {
+  color: var(--accent);
+}
+
 .sidebar__subtitle {
   font-size: 9px;
   letter-spacing: 0.14em;

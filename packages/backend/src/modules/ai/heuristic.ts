@@ -105,7 +105,12 @@ export class HeuristicAnalyzer {
     // каналов и призывы подписаться.
     const clean = stripPromotional(text);
     const title = truncate(firstSentence(clean) || clean, 180) || 'Событие без заголовка';
-    const summary = truncate(clean, 400);
+    // 400 символов обрывали новость на середине предложения. Telegram
+    // разрешает 1024 символа в подписи к фото; на заголовок, место,
+    // время и строку источника уходит около 250, поэтому на текст
+    // остаётся 760 — при этом пост с фотографией по-прежнему проходит
+    // целиком, без обрезки на стороне Telegram.
+    const summary = truncate(clean, 760);
 
     const witnessQuotes = input.transcripts
       .flatMap((transcript) => this.pickQuotes(transcript.text))

@@ -249,6 +249,19 @@ export function useReject() {
   });
 }
 
+/** Вернуть отклонённый материал в очередь на проверку. */
+export function useRestore() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) =>
+      api.post<ModerationQueueItem>(`/moderation/${eventId}/restore`, {}),
+    onSuccess: (_data, eventId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
+      void queryClient.invalidateQueries({ queryKey: ['moderation'] });
+    },
+  });
+}
+
 export function usePublish() {
   const queryClient = useQueryClient();
   return useMutation({

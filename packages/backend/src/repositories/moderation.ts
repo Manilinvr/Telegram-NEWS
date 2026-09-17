@@ -51,11 +51,25 @@ export class ModerationRepository {
     ModerationQueueItem[]
   > {
     const rows = await this.db.many(
-      `SELECT * FROM moderation_queue
-        WHERE ($1::text[] IS NULL OR status = ANY($1))
+      `SELECT mq.*,
+              e.title          AS event_title,
+              e.category_slug  AS category_slug,
+              c.title          AS category_title,
+              COALESCE(src.titles, '{}') AS source_titles
+         FROM moderation_queue mq
+         LEFT JOIN events e     ON e.id = mq.event_id
+         LEFT JOIN categories c ON c.slug = e.category_slug
+         LEFT JOIN LATERAL (
+           SELECT array_agg(DISTINCT s.title) AS titles
+             FROM event_sources es
+             JOIN source_posts sp ON sp.id = es.source_post_id
+             JOIN sources s       ON s.id = sp.source_id
+            WHERE es.event_id = mq.event_id
+         ) src ON true
+        WHERE ($1::text[] IS NULL OR mq.status = ANY($1))
         ORDER BY
-          CASE priority WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
-          created_at
+          CASE mq.priority WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+          mq.created_at
         LIMIT $2`,
       [options.status ?? null, options.limit ?? 100],
     );

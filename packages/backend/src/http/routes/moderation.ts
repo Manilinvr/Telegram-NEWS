@@ -287,6 +287,32 @@ export default async function moderationRoutes(
     },
   );
 
+  /** Вернуть отклонённый материал в очередь на проверку. */
+  app.post(
+    '/moderation/:id/restore',
+    { preHandler: app.requireRole(['OWNER', 'ADMIN']) },
+    async (request, reply) => {
+      const params = uuidParam.safeParse(request.params);
+      if (!params.success) {
+        return reply
+          .code(400)
+          .send({ error: 'VALIDATION_ERROR', message: 'Некорректный идентификатор.' });
+      }
+
+      const result = await moderation.restore({
+        eventId: params.data.id,
+        user: request.user!,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+      });
+
+      if (!result.ok) return reply.code(409).send({ error: 'CONFLICT', message: result.message });
+
+      liveBus.publish('moderation.updated', result.item);
+      return result.item;
+    },
+  );
+
   /**
    * Публикация в Telegram.
    *

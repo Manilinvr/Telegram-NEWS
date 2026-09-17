@@ -224,6 +224,14 @@ export function mapModeration(row: Row): ModerationQueueItem {
     rejectionReason: nullableStr(row.rejection_reason),
     createdAt: str(row.created_at),
     updatedAt: str(row.updated_at),
+    // Поля события присутствуют только в списке очереди: одиночная
+    // запись читается без соединений.
+    ...(row.event_title !== undefined ? { eventTitle: nullableStr(row.event_title) } : {}),
+    ...(row.category_slug !== undefined ? { categorySlug: nullableStr(row.category_slug) } : {}),
+    ...(row.category_title !== undefined ? { categoryTitle: nullableStr(row.category_title) } : {}),
+    ...(Array.isArray(row.source_titles)
+      ? { sourceTitles: (row.source_titles as unknown[]).map((v) => String(v)) }
+      : {}),
   };
 }
 

@@ -6,6 +6,7 @@ import {
   usePublish,
   useRegenerateDraft,
   useReject,
+  useRestore,
   useSaveDraft,
 } from '../../api/hooks.js';
 import { ApiError } from '../../api/client.js';
@@ -61,11 +62,13 @@ export function DraftEditor({
   const preview = usePreview();
   const approve = useApprove();
   const reject = useReject();
+  const restore = useRestore();
   const publish = usePublish();
 
   const moderationStatus = detail.moderation?.status ?? 'PENDING';
   const isBlocked = moderationStatus === 'BLOCKED' || profanity?.allowed === false;
   const isApproved = moderationStatus === 'APPROVED';
+  const isRejected = moderationStatus === 'REJECTED';
   const isPublished = moderationStatus === 'PUBLISHED';
   const busy =
     save.isPending || regenerate.isPending || approve.isPending || publish.isPending || reject.isPending;
@@ -139,6 +142,16 @@ export function DraftEditor({
     try {
       await reject.mutateAsync({ eventId: detail.id, reason });
       setNotice({ tone: 'warning', text: 'Материал отклонён.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', text: (error as Error).message });
+    }
+  };
+
+  const handleRestore = async () => {
+    setNotice(null);
+    try {
+      await restore.mutateAsync(detail.id);
+      setNotice({ tone: 'success', text: 'Материал возвращён в очередь на проверку.' });
     } catch (error) {
       setNotice({ tone: 'danger', text: (error as Error).message });
     }
@@ -293,11 +306,23 @@ export function DraftEditor({
 
         <div style={{ flex: 1 }} />
 
-        <button type="button" className="btn btn--sm btn--danger" onClick={handleReject} disabled={busy || isPublished}>
-          Отклонить
-        </button>
+        {/* Отклонённый материал не потерян: его можно вернуть в очередь. */}
+        {isRejected ? (
+          <button type="button" className="btn btn--sm" onClick={handleRestore} disabled={busy}>
+            <IconRefresh size={14} /> Вернуть в очередь
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--sm btn--danger"
+            onClick={handleReject}
+            disabled={busy || isPublished}
+          >
+            Отклонить
+          </button>
+        )}
 
-        {!isApproved && !isPublished && (
+        {!isApproved && !isPublished && !isRejected && (
           <button
             type="button"
             className="btn btn--sm btn--success"
