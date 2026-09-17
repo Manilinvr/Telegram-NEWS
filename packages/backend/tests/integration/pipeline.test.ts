@@ -1,0 +1,477 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { loadConfig, type AppConfig } from '../../src/config/env.js';
+import type { Database } from '../../src/db/pool.js';
+import { AiProcessor } from '../../src/modules/ai/processor.js';
+import { createEmbeddingProvider } from '../../src/modules/dedup/embeddings.js';
+import { EmbeddingRepository } from '../../src/modules/dedup/repository.js';
+import { AdapterRegistry } from '../../src/modules/ingestion/registry.js';
+import { IngestionService } from '../../src/modules/ingestion/service.js';
+import { ModerationService } from '../../src/modules/moderation/service.js';
+import { DraftService } from '../../src/modules/pipeline/draft-service.js';
+import { EventBuilder } from '../../src/modules/pipeline/event-builder.js';
+import { PublishingService } from '../../src/modules/publishing/service.js';
+import { createStorageDriver } from '../../src/modules/storage/driver.js';
+import { TranscriptionService } from '../../src/modules/transcription/service.js';
+import { CategoriesRepository } from '../../src/repositories/categories.js';
+import { DraftsRepository } from '../../src/repositories/drafts.js';
+import { EventsRepository } from '../../src/repositories/events.js';
+import { ModerationRepository } from '../../src/repositories/moderation.js';
+import { SourcesRepository } from '../../src/repositories/sources.js';
+import { UsersRepository } from '../../src/repositories/users.js';
+import { hashPassword } from '../../src/lib/crypto.js';
+import { closeTestDb, getTestDb, resetDb } from '../helpers/db.js';
+import { MockSourceAdapter, makePost } from '../helpers/mock-adapter.js';
+import type { User } from '@nnm/shared';
+
+/**
+ * Сквозной тест конвейера — критерии готовности MVP (ТЗ §35).
+ *
+ * Проверяется весь путь: получение публикации → объединение в событие →
+ * черновик → обязательная проверка лексики → ручная модерация →
+ * публикация. Особое внимание — барьерам, которые не должны пропускать
+ * материал без подтверждения человека и без проверки текста.
+ */
+
+let db: Database;
+let config: AppConfig;
+let adapter: MockSourceAdapter;
+let ingestion: IngestionService;
+let builder: EventBuilder;
+let draftService: DraftService;
+let moderation: ModerationService;
+let publishing: PublishingService;
+let owner: User;
+let sourceId: string;
+
+const events = () => new EventsRepository(db);
+const drafts = () => new DraftsRepository(db);
+
+beforeAll(async () => {
+  db = await getTestDb();
+  config = loadConfig({ ...process.env, TRANSCRIPTION_PROVIDER: 'mock' });
+});
+
+afterAll(async () => {
+  await closeTestDb();
+});
+
+beforeEach(async () => {
+  await resetDb(db);
+
+  const categories = new CategoriesRepository(db);
+  await categories.seedDefaults();
+  const list = await categories.list();
+
+  const users = new UsersRepository(db);
+  owner = await users.create({
+    email: 'owner@example.com',
+    passwordHash: await hashPassword('test-owner-password-2026'),
+    displayName: 'Владелец',
+    role: 'OWNER',
+  });
+
+  adapter = new MockSourceAdapter();
+  const registry = new AdapterRegistry(config);
+  registry.register('TELEGRAM', adapter);
+
+  ingestion = new IngestionService(db, registry, config);
+
+  const ai = new AiProcessor(
+    config,
+    list.map((c) => ({
+      slug: c.slug,
+      title: c.title,
+      keywords: c.keywords,
+      defaultImportance: c.defaultImportance,
+    })),
+  );
+
+  const storage = createStorageDriver(config);
+  const embeddings = new EmbeddingRepository(db, createEmbeddingProvider(config));
+  const transcription = new TranscriptionService(db, storage, config);
+
+  builder = new EventBuilder(db, ai, embeddings, config);
+  draftService = new DraftService(db, ai, config, transcription);
+  moderation = new ModerationService(db);
+  publishing = new PublishingService(db, config, storage);
+
+  const sources = new SourcesRepository(db);
+  const source = await sources.create({
+    type: 'TELEGRAM',
+    title: 'ТГ Новороссийск',
+    username: 'test_channel',
+    url: 'https://t.me/test_channel',
+  });
+  sourceId = source.id;
+});
+
+/** Получить публикации и обработать их до стадии события. */
+async function ingestAndProcess(): Promise<string[]> {
+  const sources = new SourcesRepository(db);
+  const source = await sources.findById(sourceId);
+  await ingestion.syncSource(source!);
+
+  const posts = await db.many('SELECT id FROM source_posts ORDER BY posted_at');
+  const eventIds: string[] = [];
+
+  for (const post of posts) {
+    const outcome = await builder.processPost(String(post.id));
+    if (outcome.eventId) eventIds.push(outcome.eventId);
+  }
+  return [...new Set(eventIds)];
+}
+
+describe('Сбор публикаций', () => {
+  it('сохраняет публикацию с исходным текстом и ссылкой на оригинал', async () => {
+    adapter.setPosts([
+      makePost({
+        id: '1001',
+        text: 'В Новороссийске на улице Видова произошло ДТП с участием двух автомобилей.',
+      }),
+    ]);
+
+    const sources = new SourcesRepository(db);
+    const result = await ingestion.syncSource((await sources.findById(sourceId))!);
+
+    expect(result.saved).toBe(1);
+
+    const post = await db.one('SELECT * FROM source_posts LIMIT 1');
+    expect(String(post.raw_text)).toContain('улице Видова');
+    expect(String(post.url)).toBe('https://t.me/test_channel/1001');
+    expect(post.status).toBe('NEW');
+  });
+
+  it('повторный опрос не создаёт дублей', async () => {
+    const posts = [makePost({ id: '1001', text: 'Текст публикации о городском событии.' })];
+    const sources = new SourcesRepository(db);
+
+    adapter.setPosts(posts);
+    await ingestion.syncSource((await sources.findById(sourceId))!);
+    adapter.setPosts(posts);
+    await ingestion.syncSource((await sources.findById(sourceId))!);
+
+    const count = await db.one('SELECT count(*)::int AS count FROM source_posts');
+    expect(Number(count.count)).toBe(1);
+  });
+
+  it('сбой источника фиксируется и не выбрасывает исключение', async () => {
+    adapter.failWith(new Error('Источник недоступен'));
+    const sources = new SourcesRepository(db);
+
+    const result = await ingestion.syncSource((await sources.findById(sourceId))!);
+
+    expect(result.error).toContain('недоступен');
+
+    // Источник помечен как деградировавший, но не отключён.
+    const source = await sources.findById(sourceId);
+    expect(source?.health).toBe('DEGRADED');
+    expect(source?.isActive).toBe(true);
+
+    // Ошибка записана в журнал для диагностики.
+    const errors = await db.many(`SELECT * FROM processing_errors WHERE source_id = $1`, [sourceId]);
+    expect(errors.length).toBe(1);
+  });
+
+  it('сохраняет исходный мат, но помечает публикацию', async () => {
+    adapter.setPosts([
+      makePost({ id: '1002', text: `Очевидец кричал: ${['б','л','я','д','ь'].join('')}! На дороге авария.` }),
+    ]);
+    const sources = new SourcesRepository(db);
+    await ingestion.syncSource((await sources.findById(sourceId))!);
+
+    const post = await db.one('SELECT raw_text, raw_has_profanity FROM source_posts LIMIT 1');
+    // Исходные данные не изменяются — они нужны для аудита.
+    expect(String(post.raw_text)).toContain('авария');
+    expect(post.raw_has_profanity).toBe(true);
+  });
+});
+
+describe('Объединение публикаций в события', () => {
+  it('две публикации об одном ДТП дают одно событие', async () => {
+    adapter.setPosts([
+      makePost({
+        id: '2001',
+        minutesAgo: 60,
+        text: 'В Новороссийске на улице Видова произошло ДТП с участием двух автомобилей. На месте работают сотрудники ДПС, движение затруднено.',
+      }),
+      makePost({
+        id: '2002',
+        minutesAgo: 35,
+        text: 'ДТП на улице Видова в Новороссийске: столкнулись две машины. Полиция на месте, движение по полосе затруднено.',
+      }),
+    ]);
+
+    const eventIds = await ingestAndProcess();
+
+    expect(eventIds).toHaveLength(1);
+
+    const event = await events().findById(eventIds[0]!);
+    expect(event?.sourcePostCount).toBe(2);
+  });
+
+  it('разные происшествия остаются разными событиями', async () => {
+    adapter.setPosts([
+      makePost({
+        id: '2003',
+        minutesAgo: 90,
+        text: 'В Новороссийске на улице Видова произошло ДТП, столкнулись два автомобиля.',
+      }),
+      makePost({
+        id: '2004',
+        minutesAgo: 20,
+        text: 'В городском парке Новороссийска открыли новую детскую площадку для жителей.',
+      }),
+    ]);
+
+    const eventIds = await ingestAndProcess();
+    expect(eventIds.length).toBe(2);
+  });
+
+  it('сохраняет происхождение каждой публикации события', async () => {
+    adapter.setPosts([
+      makePost({ id: '2005', minutesAgo: 30, text: 'Пожар в жилом доме на Анапском шоссе, работают пожарные расчёты.' }),
+    ]);
+
+    const [eventId] = await ingestAndProcess();
+    const sources = await events().sourcesFor(eventId!);
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.sourceTitle).toBe('ТГ Новороссийск');
+    // Оригинальная ссылка обязана сохраняться.
+    expect(sources[0]!.originalUrl).toContain('t.me/test_channel');
+  });
+});
+
+describe('Черновик и обязательная проверка лексики', () => {
+  it('создаёт черновик и ставит событие в очередь модерации', async () => {
+    adapter.setPosts([
+      makePost({
+        id: '3001',
+        text: 'В Восточном районе Новороссийска временно отключили электричество из-за аварии на сетях. Работы продлятся до вечера.',
+      }),
+    ]);
+
+    const [eventId] = await ingestAndProcess();
+    const draft = await draftService.generateForEvent(eventId!);
+
+    expect(draft).not.toBeNull();
+    expect(draft!.telegramText.length).toBeGreaterThan(10);
+    // Проверка лексики выполнена и зафиксирована в самом черновике.
+    expect(draft!.profanityChecked).toBe(true);
+    expect(draft!.profanityPassed).toBe(true);
+
+    const queue = await new ModerationRepository(db).findByEvent(eventId!);
+    expect(queue?.status).toBe('PENDING');
+  });
+
+  it('текст поста содержит указание источника', async () => {
+    adapter.setPosts([
+      makePost({ id: '3002', text: 'На набережной Новороссийска пройдёт фестиваль уличной культуры в субботу.' }),
+    ]);
+
+    const [eventId] = await ingestAndProcess();
+    const draft = await draftService.generateForEvent(eventId!);
+
+    // Система не выдаёт переработанный чужой материал за свой.
+    expect(draft!.telegramText).toContain('Источник:');
+    expect(draft!.telegramText).toContain('ТГ Новороссийск');
+  });
+
+  it('мат из источника не попадает в черновик', async () => {
+    const mat = ['б', 'л', 'я', 'д', 'ь'].join('');
+    adapter.setPosts([
+      makePost({
+        id: '3003',
+        text: `Водитель кричал ${mat} и уехал. В Новороссийске на улице Видова произошло ДТП с участием двух автомобилей.`,
+      }),
+    ]);
+
+    const [eventId] = await ingestAndProcess();
+    const draft = await draftService.generateForEvent(eventId!);
+
+    expect(draft).not.toBeNull();
+    // Готовый текст не содержит запрещённой лексики...
+    expect(draft!.telegramText.toLowerCase()).not.toContain(mat);
+    expect(draft!.title.toLowerCase()).not.toContain(mat);
+    // ...при этом исходная публикация сохранена без изменений.
+    const post = await db.one('SELECT raw_text FROM source_posts LIMIT 1');
+    expect(String(post.raw_text)).toContain(mat);
+  });
+});
+
+describe('Барьеры публикации', () => {
+  /** Подготовить событие с черновиком. */
+  async function prepareEvent(): Promise<string> {
+    adapter.setPosts([
+      makePost({
+        id: '4001',
+        text: 'В Новороссийске на трассе Новороссийск — Керчь затруднено движение из-за дорожных работ.',
+      }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+    await draftService.generateForEvent(eventId!);
+    return eventId!;
+  }
+
+  const ctx = { ipAddress: '127.0.0.1', userAgent: 'vitest' };
+
+  it('без подтверждения человека публикация невозможна', async () => {
+    const eventId = await prepareEvent();
+    await moderation.approve({ eventId, user: owner, ...ctx });
+
+    const result = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: false });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('NOT_CONFIRMED');
+  });
+
+  it('без одобрения модератора публикация невозможна', async () => {
+    const eventId = await prepareEvent();
+
+    const result = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('NOT_APPROVED');
+  });
+
+  it('одобренный материал публикуется (сухой прогон)', async () => {
+    const eventId = await prepareEvent();
+    const approved = await moderation.approve({ eventId, user: owner, ...ctx });
+    expect(approved.ok).toBe(true);
+
+    const result = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+
+    expect(result.ok).toBe(true);
+    expect(result.publication?.dryRun).toBe(true);
+    // Сохраняются пользователь, подтвердивший публикацию, и сам текст.
+    expect(result.publication?.publishedBy).toBe(owner.id);
+    expect(result.publication?.publishedText.length).toBeGreaterThan(10);
+
+    const event = await events().findById(eventId);
+    expect(event?.status).toBe('PUBLISHED');
+  });
+
+  it('мат, вписанный вручную, блокирует публикацию', async () => {
+    const eventId = await prepareEvent();
+    const mat = ['х', 'у', 'й'].join('');
+
+    // Модератор вручную правит текст и вписывает недопустимое слово.
+    const edit = await draftService.saveManualEdit({
+      eventId,
+      userId: owner.id,
+      title: 'Заголовок новости',
+      body: 'Текст новости',
+      telegramText: `Заголовок новости\n\nПолный ${mat} текст.`,
+    });
+
+    // Правка сохранена, но помечена как не прошедшая проверку.
+    expect(edit.allowed).toBe(false);
+
+    // Одобрить такой материал нельзя.
+    const approved = await moderation.approve({ eventId, user: owner, ...ctx });
+    expect(approved.ok).toBe(false);
+    if (!approved.ok) expect(approved.code).toBe('PROFANITY_BLOCKED');
+
+    // И опубликовать тоже нельзя.
+    const published = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+    expect(published.ok).toBe(false);
+  });
+
+  it('повторная проверка ловит мат даже при попытке обойти её напрямую', async () => {
+    const eventId = await prepareEvent();
+    await moderation.approve({ eventId, user: owner, ...ctx });
+
+    // Имитируем попытку подменить текст в обход интерфейса: запись
+    // помечена как прошедшую проверку, хотя текст содержит мат.
+    const mat = ['п', 'и', 'з', 'д', 'е', 'ц'].join('');
+    await db.query(
+      `UPDATE ai_drafts SET telegram_text = $2, profanity_passed = true WHERE event_id = $1 AND is_current`,
+      [eventId, `Заголовок\n\nПолный ${mat} в тексте.`],
+    );
+
+    // Финальная проверка выполняется заново и не доверяет флагу в БД.
+    const result = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('PROFANITY_BLOCKED');
+
+    const queue = await new ModerationRepository(db).findByEvent(eventId);
+    expect(queue?.status).toBe('BLOCKED');
+  });
+
+  it('реальная отправка без настроенного бота отклоняется', async () => {
+    // Сухой прогон проходит и без токена, но настоящая отправка — нет.
+    const storage = createStorageDriver(config);
+    const realConfig = loadConfig({ ...process.env, TELEGRAM_PUBLISH_DRY_RUN: 'false' });
+    const realPublishing = new PublishingService(db, realConfig, storage);
+
+    const eventId = await prepareEvent();
+    await moderation.approve({ eventId, user: owner, ...ctx });
+
+    const result = await realPublishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('NOT_CONFIGURED');
+  });
+
+  it('публикация без источников невозможна', async () => {
+    const eventId = await prepareEvent();
+    await moderation.approve({ eventId, user: owner, ...ctx });
+
+    // Убираем связи с публикациями.
+    await db.query('DELETE FROM event_sources WHERE event_id = $1', [eventId]);
+
+    const result = await publishing.publish({ eventId, user: owner, ...ctx, confirmed: true });
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('MISSING_SOURCES');
+  });
+
+  it('роль без прав не может публиковать', async () => {
+    const eventId = await prepareEvent();
+    await moderation.approve({ eventId, user: owner, ...ctx });
+
+    const viewer: User = { ...owner, id: owner.id, role: 'VIEWER' };
+    const result = await publishing.publish({ eventId, user: viewer, ...ctx, confirmed: true });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('FORBIDDEN');
+  });
+
+  it('каждая попытка публикации фиксируется в аудите', async () => {
+    const eventId = await prepareEvent();
+    await publishing.publish({ eventId, user: owner, ...ctx, confirmed: false });
+
+    const entries = await db.many(
+      `SELECT action FROM audit_logs WHERE entity_id = $1 ORDER BY created_at`,
+      [eventId],
+    );
+    const actions = entries.map((e) => String(e.action));
+    expect(actions).toContain('publish.attempt');
+    expect(actions).toContain('publish.blocked');
+  });
+});
+
+describe('История версий черновика', () => {
+  it('ручная правка создаёт новую версию, не затирая предыдущую', async () => {
+    adapter.setPosts([
+      makePost({ id: '5001', text: 'В Новороссийске открыли новый многофункциональный центр для жителей.' }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+    const first = await draftService.generateForEvent(eventId!);
+
+    await draftService.saveManualEdit({
+      eventId: eventId!,
+      userId: owner.id,
+      title: 'Исправленный заголовок',
+      body: 'Исправленный текст новости.',
+      telegramText: 'Исправленный заголовок\n\nИсправленный текст новости.',
+    });
+
+    const history = await drafts().history(eventId!);
+    expect(history.length).toBe(2);
+    expect(history[0]!.version).toBe(2);
+    expect(history[0]!.createdBy).toBe('HUMAN');
+    // Предыдущая версия сохранена целиком.
+    expect(history[1]!.id).toBe(first!.id);
+    expect(history[1]!.isCurrent).toBe(false);
+  });
+});
