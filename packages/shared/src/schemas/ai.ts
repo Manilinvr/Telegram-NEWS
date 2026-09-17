@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IMPORTANCE_LEVELS } from '../domain/statuses.js';
+import { IMPORTANCE } from '../domain/statuses.js';
 
 /**
  * Строгая схема структурированного ответа AI (ТЗ §29).
@@ -9,7 +9,18 @@ import { IMPORTANCE_LEVELS } from '../domain/statuses.js';
  * отклоняется и задача уходит на повтор, а не создаёт «мусорное» событие.
  */
 
-const importanceEnum = z.enum(IMPORTANCE_LEVELS as unknown as [string, ...string[]]);
+/**
+ * Перечисление задаётся литералами из IMPORTANCE, а не приведением массива
+ * к [string, ...string[]]: приведение стирает union-тип, и `importance`
+ * выводится как обычная строка, из-за чего ответ модели перестаёт
+ * проверяться типами на стороне вызывающего кода.
+ */
+const importanceEnum = z.enum([
+  IMPORTANCE.LOW,
+  IMPORTANCE.MEDIUM,
+  IMPORTANCE.HIGH,
+  IMPORTANCE.CRITICAL,
+]);
 
 /** Отдельный извлечённый факт с обязательной пометкой о его статусе. */
 export const aiFactSchema = z.object({
