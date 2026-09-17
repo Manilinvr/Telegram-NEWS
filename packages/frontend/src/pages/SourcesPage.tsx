@@ -103,29 +103,40 @@ export function SourcesPage() {
                   className="input"
                   value={form.title}
                   onChange={(event) => setForm({ ...form, title: event.target.value })}
-                  placeholder="ТГ Новороссийск"
+                  placeholder={form.type === 'VK' ? 'ВК Новороссийск' : 'ТГ Новороссийск'}
                   required
                 />
               </div>
 
               <div className="field">
                 <label className="field__label" htmlFor="source-username">
-                  Адрес канала в ссылке
+                  {form.type === 'VK' ? 'Адрес сообщества в ссылке' : 'Адрес канала в ссылке'}
                 </label>
                 <input
                   id="source-username"
                   className="input"
                   value={form.username}
                   onChange={(event) => setForm({ ...form, username: event.target.value })}
-                  placeholder="novorossiysk_news"
+                  placeholder={form.type === 'VK' ? 'nvrsk_life' : 'novorossiysk_news'}
                 />
-                {/* Раньше подписи «Имя канала» и «Без символа @» читались как
-                    название канала, и сюда вписывали «ЧП Новороссийск».
-                    Поэтому подсказка показывает разбор конкретной ссылки. */}
+                {/* Подсказка привязана к выбранной площадке: общий текст про
+                    t.me сбивал с толку при добавлении сообщества ВК, а прежние
+                    подписи «Имя канала» и «Без символа @» читались как
+                    название, и сюда вписывали «ЧП Новороссийск». */}
                 <span className="field__hint">
-                  Не название, а часть ссылки после t.me/ — например, из
-                  <code> t.me/chpnvrsk_official</code> сюда идёт
-                  <code> chpnvrsk_official</code>. Без @ и без https://
+                  {form.type === 'VK' ? (
+                    <>
+                      Не название, а часть ссылки после vk.com/ — например, из
+                      <code> vk.com/nvrsk_life</code> сюда идёт
+                      <code> nvrsk_life</code>. Можно указать числовой owner_id
+                    </>
+                  ) : (
+                    <>
+                      Не название, а часть ссылки после t.me/ — например, из
+                      <code> t.me/chpnvrsk_official</code> сюда идёт
+                      <code> chpnvrsk_official</code>. Без @ и без https://
+                    </>
+                  )}
                 </span>
               </div>
 
@@ -137,7 +148,11 @@ export function SourcesPage() {
                   type="url"
                   value={form.url}
                   onChange={(event) => setForm({ ...form, url: event.target.value })}
-                  placeholder="https://t.me/novorossiysk_news"
+                  placeholder={
+                    form.type === 'VK'
+                      ? 'https://vk.com/nvrsk_life'
+                      : 'https://t.me/novorossiysk_news'
+                  }
                   required
                 />
               </div>
