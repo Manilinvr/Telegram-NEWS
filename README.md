@@ -64,6 +64,7 @@ node -e "console.log('CSRF_SECRET=' + require('crypto').randomBytes(48).toString
 
 # 3. База данных (вариант с Docker)
 docker compose up -d postgres
+# Для Supabase см. docs/DEPLOY-SUPABASE.md — там отдельный каталог миграций.
 
 # 4. Схема и справочники
 npm run migrate
@@ -104,6 +105,8 @@ npm run seed:demo -w @nnm/backend
 | `npm run bootstrap:admin` | Создать владельца (идемпотентно) |
 | `npm test` | Все тесты |
 | `npm run typecheck` | Проверка типов, включая тесты |
+| `npm run migrate:baseline -w @nnm/backend` | Отметить миграции применёнными, не выполняя их |
+| `npm run build:supabase` | Пересобрать `supabase/migrations/` из исходных миграций |
 | `npm run backup` / `npm run restore` | Резервное копирование БД |
 
 ---
@@ -118,6 +121,7 @@ npm run seed:demo -w @nnm/backend
 | [docs/SETUP-AI.md](docs/SETUP-AI.md) | Настройка модели и эмбеддингов |
 | [docs/SETUP-TELEGRAM.md](docs/SETUP-TELEGRAM.md) | Публикация в канал |
 | [docs/SETUP-TRANSCRIPTION.md](docs/SETUP-TRANSCRIPTION.md) | Расшифровка видео |
+| [docs/DEPLOY-SUPABASE.md](docs/DEPLOY-SUPABASE.md) | Развёртывание базы в Supabase |
 | [docs/SECURITY.md](docs/SECURITY.md) | Модель безопасности |
 | [docs/BACKUP.md](docs/BACKUP.md) | Резервное копирование и восстановление |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | **Известные ограничения — прочитайте перед вводом в работу** |

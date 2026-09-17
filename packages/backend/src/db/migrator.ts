@@ -135,6 +135,45 @@ export async function migrateUp(db: Database): Promise<string[]> {
   return executed;
 }
 
+/**
+ * Отметить все миграции применёнными, НЕ выполняя их.
+ *
+ * Нужно, когда схема уже создана внешним механизмом — например,
+ * интеграцией Supabase с GitHub. Без этого собственный раннер считал бы
+ * базу пустой и пытался создать существующие таблицы.
+ *
+ * Команда намеренно ничего не выполняет: она лишь синхронизирует учёт.
+ * Проверка ниже не даёт применить её к пустой базе, где это привело бы
+ * к тому, что миграции считались бы применёнными при отсутствующей схеме.
+ */
+export async function migrateBaseline(db: Database): Promise<string[]> {
+  await ensureMigrationsTable(db);
+
+  const row = await db.one<{ count: number }>(
+    `SELECT count(*)::int AS count FROM pg_tables
+      WHERE schemaname = 'public' AND tablename <> 'schema_migrations'`,
+  );
+  if (Number(row.count) === 0) {
+    throw new Error(
+      'База пуста: отмечать миграции применёнными нечего. Примените их обычным способом (npm run migrate).',
+    );
+  }
+
+  const migrations = await loadMigrations();
+  const recorded: string[] = [];
+
+  for (const migration of migrations) {
+    const result = await db.query(
+      `INSERT INTO schema_migrations (id, checksum) VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [migration.id, migration.checksum],
+    );
+    if ((result.rowCount ?? 0) > 0) recorded.push(migration.id);
+  }
+
+  return recorded;
+}
+
 /** Откатить последнюю применённую миграцию. */
 export async function migrateDown(db: Database, steps = 1): Promise<string[]> {
   await ensureMigrationsTable(db);

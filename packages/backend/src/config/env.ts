@@ -52,6 +52,21 @@ const envSchema = z
     DATABASE_URL: z.string().min(1, 'DATABASE_URL обязателен'),
     DATABASE_POOL_MAX: int(10),
     DATABASE_SSL: bool(false),
+    /**
+     * Лимит времени запроса, мс. 0 отключает его вместе с
+     * idle_in_transaction_session_timeout — нужно для пулеров в режиме
+     * транзакций, отклоняющих эти параметры при подключении.
+     */
+    DATABASE_STATEMENT_TIMEOUT_MS: int(30_000),
+    /**
+     * Применять ли миграции при старте API.
+     *
+     * Отключается, когда схемой управляет внешний механизм — например,
+     * интеграция Supabase с GitHub, которая применяет миграции сама и
+     * ведёт собственный учёт. Иначе раннер попытается создать уже
+     * существующие таблицы, и приложение не запустится.
+     */
+    MIGRATE_ON_STARTUP: bool(true),
 
     SESSION_SECRET: optionalStr,
     CSRF_SECRET: optionalStr,

@@ -1,6 +1,6 @@
 /** CLI миграций: `npm run migrate | migrate:down | migrate:status`. */
 import { createDatabase } from './pool.js';
-import { getStatus, migrateDown, migrateUp } from './migrator.js';
+import { getStatus, migrateBaseline, migrateDown, migrateUp } from './migrator.js';
 import { logger } from '../lib/logger.js';
 
 const command = process.argv[2] ?? 'up';
@@ -23,6 +23,15 @@ try {
       logger.info({ reverted }, `Откачено миграций: ${reverted.length}`);
       break;
     }
+    case 'baseline': {
+      const recorded = await migrateBaseline(db);
+      if (recorded.length === 0) {
+        logger.info('Все миграции уже отмечены применёнными.');
+      } else {
+        logger.info({ recorded }, `Отмечено применёнными без выполнения: ${recorded.length}`);
+      }
+      break;
+    }
     case 'status': {
       const status = await getStatus(db);
       for (const row of status) {
@@ -33,7 +42,9 @@ try {
       break;
     }
     default:
-      throw new Error(`Неизвестная команда: ${command}. Доступно: up | down | status`);
+      throw new Error(
+        `Неизвестная команда: ${command}. Доступно: up | down | baseline | status`,
+      );
   }
   await db.close();
   process.exit(0);

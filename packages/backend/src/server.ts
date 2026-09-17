@@ -17,10 +17,16 @@ const db = getDatabase();
 
 try {
   // Миграции применяются при старте: схема и код всегда согласованы,
-  // и нельзя запустить новый код на старой схеме.
-  const applied = await migrateUp(db);
-  if (applied.length > 0) {
-    logger.info({ applied }, `Применено миграций при старте: ${applied.length}`);
+  // и нельзя запустить новый код на старой схеме. Когда схемой управляет
+  // внешний механизм (интеграция Supabase с GitHub), шаг отключается —
+  // иначе раннер попытается создать уже существующие таблицы.
+  if (config.MIGRATE_ON_STARTUP) {
+    const applied = await migrateUp(db);
+    if (applied.length > 0) {
+      logger.info({ applied }, `Применено миграций при старте: ${applied.length}`);
+    }
+  } else {
+    logger.info('Миграции при старте отключены (MIGRATE_ON_STARTUP=false)');
   }
 
   const app = await buildServer(config, db);

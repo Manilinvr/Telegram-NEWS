@@ -20,7 +20,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
-    "seed:demo": "tsx src/scripts/seed-demo.ts"
+    "seed:demo": "tsx src/scripts/seed-demo.ts",
+    "migrate:baseline": "tsx src/db/cli-migrate.ts baseline"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

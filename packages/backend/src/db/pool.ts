@@ -129,8 +129,19 @@ export function createDatabase(config: AppConfig = getConfig()): Database {
     max: config.DATABASE_POOL_MAX,
     ssl: config.DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
     // Не даём «зависшим» запросам удерживать соединение бесконечно.
-    statement_timeout: 30_000,
-    idle_in_transaction_session_timeout: 30_000,
+    //
+    // Эти два параметра передаются в стартовом пакете соединения. Пулеры
+    // в режиме транзакций (например, Supabase на порту 6543) такие
+    // параметры отклоняют, и подключение не устанавливается вовсе.
+    // Поэтому их можно отключить, задав DATABASE_STATEMENT_TIMEOUT_MS=0;
+    // для этой системы правильнее использовать session pooler, где они
+    // работают и защищают от зависших запросов.
+    ...(config.DATABASE_STATEMENT_TIMEOUT_MS > 0
+      ? {
+          statement_timeout: config.DATABASE_STATEMENT_TIMEOUT_MS,
+          idle_in_transaction_session_timeout: config.DATABASE_STATEMENT_TIMEOUT_MS,
+        }
+      : {}),
     connectionTimeoutMillis: 10_000,
   });
 

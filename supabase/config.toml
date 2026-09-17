@@ -1,0 +1,14 @@
+# Конфигурация Supabase CLI.
+#
+# Каталог supabase/migrations собирается скриптом из единственного
+# источника — packages/backend/src/db/migrations. Не редактируйте его
+# вручную: правьте исходные миграции и выполняйте `npm run build:supabase`.
+
+project_id = "novorossiysk-news-monitoring"
+
+[db]
+# Версия должна совпадать с версией проекта в Supabase.
+major_version = 15
+
+[db.migrations]
+enabled = true
