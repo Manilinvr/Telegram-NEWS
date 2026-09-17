@@ -19,8 +19,13 @@ secrets/
 .secrets/
 
 # runtime data
-storage/
-media-local/
+#
+# Ведущий слэш обязателен: без него «storage/» совпадает с любой папкой
+# с таким именем на любой глубине — и исходники
+# packages/backend/src/modules/storage/ молча не попадают в коммит.
+# Сборка при этом проходит локально и падает на чистом клоне.
+/storage/
+/media-local/
 tmp/
 *.log
 logs/

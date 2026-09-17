@@ -24,14 +24,15 @@
     "test": "npm run test -w @nnm/shared && npm run test -w @nnm/backend",
     "test:unit": "npm run test:unit -w @nnm/backend",
     "test:integration": "npm run test:integration -w @nnm/backend",
-    "typecheck": "npm run build -w @nnm/shared && npm run typecheck -w @nnm/backend && npm run typecheck -w @nnm/frontend",
+    "typecheck": "node scripts/check-sources-tracked.mjs && npm run build -w @nnm/shared && npm run typecheck -w @nnm/backend && npm run typecheck -w @nnm/frontend",
     "lint": "eslint packages --ext .ts,.tsx",
     "format": "prettier --write \"packages/**/*.{ts,tsx,css,json,md}\"",
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh",
     "build:supabase": "node scripts/build-supabase-migrations.mjs && node scripts/build-setup-sql.mjs",
     "build:setup-sql": "node scripts/build-setup-sql.mjs",
-    "doctor": "npm run build -w @nnm/shared && npm run doctor -w @nnm/backend"
+    "doctor": "npm run build -w @nnm/shared && npm run doctor -w @nnm/backend",
+    "check:sources": "node scripts/check-sources-tracked.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
