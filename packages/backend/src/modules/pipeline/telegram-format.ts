@@ -26,8 +26,14 @@ export function buildTelegramPost(input: TelegramPostInput): string {
   const limit = input.hasMedia ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_TEXT_LIMIT;
   const blocks: string[] = [];
 
-  blocks.push(input.title.trim());
-  blocks.push(input.body.trim());
+  const title = input.title.trim();
+  // Тело не должно повторять заголовок. И модель, и эвристика склонны
+  // начинать текст той же фразой, что стоит в заголовке, и в готовом
+  // посте предложение появлялось дважды.
+  const body = stripLeadingTitle(input.body.trim(), title);
+
+  blocks.push(title);
+  if (body) blocks.push(body);
 
   const meta: string[] = [];
   if (input.location) meta.push(`📍 ${input.location.trim()}`);
@@ -87,6 +93,30 @@ function dedupeSources(
     result.push(source);
   }
   return result;
+}
+
+/**
+ * Убрать из начала текста повтор заголовка.
+ *
+ * Сравнение ведётся по буквам и цифрам: заголовок и первое предложение
+ * могут отличаться знаками препинания и регистром, оставаясь одной и той
+ * же фразой.
+ */
+function stripLeadingTitle(body: string, title: string): string {
+  const key = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const titleKey = key(title);
+  if (titleKey.length < 10) return body;
+
+  const sentences = body.split(/(?<=[.!?…])\s+/);
+  const first = sentences[0];
+  if (first && key(first) === titleKey) {
+    return sentences.slice(1).join(' ').trim();
+  }
+  // Заголовок мог быть обрезан по длине — тогда он является префиксом.
+  if (key(body).startsWith(titleKey) && first && key(first).startsWith(titleKey)) {
+    return sentences.slice(1).join(' ').trim();
+  }
+  return body;
 }
 
 /** Время события в часовом поясе города. */

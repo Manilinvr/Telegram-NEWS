@@ -9,7 +9,12 @@ import { EventsRepository } from '../../repositories/events.js';
 import { OpsRepository } from '../../repositories/ops.js';
 import { PostsRepository } from '../../repositories/posts.js';
 import type { AiProcessor } from '../ai/processor.js';
-import { compareForDedup, type DedupCandidate, type DedupVerdict } from '../dedup/engine.js';
+import {
+  compareForDedup,
+  normalizeEntity,
+  type DedupCandidate,
+  type DedupVerdict,
+} from '../dedup/engine.js';
 import type { EmbeddingRepository } from '../dedup/repository.js';
 
 const log = childLogger({ module: 'event-builder' });
@@ -248,6 +253,15 @@ export class EventBuilder {
     const embeddingMap = await this.embeddings.getMany(rows.map((row) => String(row.id)));
     const checksumMap = await this.checksumsForPosts(rows.map((row) => String(row.id)));
 
+    // Вес редкости сущностей считается по самому окну кандидатов: так
+    // мера настраивается сама и не требует поддерживать список «частых»
+    // слов вручную. Город упоминается почти везде и веса почти не имеет,
+    // название улицы встречается редко и весит много.
+    const entityIdf = buildEntityIdf([
+      self.entities,
+      ...rows.map((row) => (Array.isArray(row.entities) ? row.entities.map(String) : [])),
+    ]);
+
     let best: { eventId: string; verdict: DedupVerdict } | null = null;
 
     for (const row of rows) {
@@ -269,7 +283,7 @@ export class EventBuilder {
 
       // Публикация того же источника почти всегда является отдельной
       // новостью или уточнением, а не независимым подтверждением.
-      const verdict = compareForDedup(self, candidate, options);
+      const verdict = compareForDedup(self, candidate, { ...options, entityIdf });
 
       if (!best || verdict.score > best.verdict.score) {
         best = { eventId: String(row.event_id), verdict };
@@ -302,4 +316,29 @@ export class EventBuilder {
     }
     return map;
   }
+}
+
+/**
+ * Обратная частота сущностей по набору публикаций.
+ *
+ * Чем в большем числе публикаций встречается сущность, тем меньше она
+ * говорит о том, что речь об одном событии.
+ */
+function buildEntityIdf(sets: string[][]): Map<string, number> {
+  const documentFrequency = new Map<string, number>();
+
+  for (const entities of sets) {
+    // Ключи должны совпадать с теми, по которым сущности сравниваются,
+    // иначе вес редкости не найдётся и признак потеряет поправку.
+    for (const entity of new Set(entities.map(normalizeEntity).filter(Boolean))) {
+      documentFrequency.set(entity, (documentFrequency.get(entity) ?? 0) + 1);
+    }
+  }
+
+  const total = sets.length;
+  const idf = new Map<string, number>();
+  for (const [entity, frequency] of documentFrequency) {
+    idf.set(entity, Math.log(1 + total / (1 + frequency)));
+  }
+  return idf;
 }

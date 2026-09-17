@@ -1,0 +1,257 @@
+/* Графики и карта. Всё рисуется локально в SVG, без внешних сервисов. */
+
+.chart {
+  width: 100%;
+  overflow: visible;
+}
+
+.chart__grid-line {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+
+.chart__axis-label {
+  fill: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-sans);
+}
+
+.chart__area {
+  fill: url(#chart-gradient);
+}
+
+.chart__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart__line--secondary {
+  stroke: var(--info);
+  stroke-dasharray: 3 3;
+  stroke-width: 1.5;
+}
+
+.chart__dot {
+  fill: var(--bg-panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.chart__hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.chart-tooltip {
+  position: absolute;
+  padding: 7px 10px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-raised);
+  font-size: var(--text-sm);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+.chart-tooltip__title {
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.chart-tooltip__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-wrap {
+  position: relative;
+}
+
+/* --- Кольцевая диаграмма ---------------------------------------------------- */
+
+.donut {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.donut__chart {
+  flex-shrink: 0;
+  position: relative;
+}
+
+.donut__center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.donut__total {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.donut__total-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.donut__segment {
+  transition: opacity var(--transition);
+  cursor: pointer;
+}
+
+.donut__segment--dimmed {
+  opacity: 0.25;
+}
+
+.donut__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.donut__legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.donut__legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.donut__legend-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut__legend-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Карта событий ---------------------------------------------------------- */
+
+/*
+ * Карта схематичная и рисуется локально: обращений к внешним тайл-серверам
+ * нет, поэтому содержимое ленты не утекает наружу, а панель работает
+ * в закрытом контуре.
+ */
+.map {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #071019;
+  border: 1px solid var(--border-subtle);
+}
+
+.map__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.map__water { fill: #0a1a26; }
+.map__land { fill: #0e1a24; }
+.map__coast { stroke: #1d3444; stroke-width: 1; fill: none; }
+.map__road { stroke: #1a2c3a; stroke-width: 1.2; fill: none; }
+.map__road--major { stroke: #23404f; stroke-width: 2; }
+.map__label { fill: #3d5568; font-size: 7px; font-family: var(--font-sans); }
+
+.map__marker {
+  cursor: pointer;
+  transition: r var(--transition);
+}
+
+.map__marker-ring {
+  fill: none;
+  stroke-width: 1.5;
+  opacity: 0.5;
+}
+
+.map__legend {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: 5px 9px;
+  background: #050c14cc;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  backdrop-filter: blur(4px);
+}
+
+.map__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.map__zoom {
+  position: absolute;
+  right: var(--space-3);
+  top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.map__zoom button {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: #050c14cc;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  backdrop-filter: blur(4px);
+}
+
+.map__zoom button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* --- Спарклайн в списках ------------------------------------------------------ */
+
+.sparkline {
+  width: 54px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.sparkline__path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}

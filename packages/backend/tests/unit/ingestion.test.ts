@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parsePreviewPage } from '../../src/modules/ingestion/telegram.js';
 import { htmlToText, decodeEntities } from '../../src/modules/ingestion/html.js';
+import { buildTelegramPost } from '../../src/modules/pipeline/telegram-format.js';
 import {
   extractEntities,
   geocodeLocation,
@@ -165,5 +166,77 @@ describe('Сравнение текстов', () => {
 
     expect(jaccardSimilarity(a, b)).toBeGreaterThan(jaccardSimilarity(a, c));
     expect(jaccardSimilarity(a, [])).toBe(0);
+  });
+});
+
+describe('Формирование Telegram-поста', () => {
+  it('не повторяет заголовок в теле поста', () => {
+    const text = buildTelegramPost({
+      title: 'В Новороссийске на улице Видова произошло ДТП',
+      // Эвристика и модель склонны начинать текст той же фразой.
+      body: 'В Новороссийске на улице Видова произошло ДТП. Пострадавших нет.',
+      sources: [{ title: 'ТГ Новороссийск' }],
+    });
+
+    const occurrences = text.split('улице Видова произошло ДТП').length - 1;
+    expect(occurrences).toBe(1);
+    expect(text).toContain('Пострадавших нет.');
+  });
+
+  it('оставляет тело нетронутым, если оно не повторяет заголовок', () => {
+    const text = buildTelegramPost({
+      title: 'Отключение электричества',
+      body: 'В Восточном районе временно отключили свет.',
+      sources: [{ title: 'ТГ Новороссийск' }],
+    });
+    expect(text).toContain('Отключение электричества');
+    expect(text).toContain('В Восточном районе временно отключили свет.');
+  });
+
+  it('всегда указывает источник — переработанный материал не выдаётся за свой', () => {
+    const text = buildTelegramPost({
+      title: 'Заголовок новости',
+      body: 'Текст новости.',
+      sources: [{ title: 'ТГ Новороссийск' }, { title: 'VK Новороссийск' }],
+    });
+    expect(text).toContain('Источник:');
+    expect(text).toContain('ТГ Новороссийск, VK Новороссийск');
+  });
+
+  it('не дублирует один источник дважды', () => {
+    const text = buildTelegramPost({
+      title: 'Заголовок',
+      body: 'Текст.',
+      sources: [{ title: 'ТГ Новороссийск' }, { title: 'ТГ Новороссийск' }],
+    });
+    expect(text.split('ТГ Новороссийск').length - 1).toBe(1);
+  });
+
+  it('добавляет место, время и реплики очевидцев', () => {
+    const text = buildTelegramPost({
+      title: 'ДТП на Видова',
+      body: 'Столкнулись два автомобиля.',
+      location: 'улица Видова',
+      eventTime: '2026-04-14T11:32:00Z',
+      witnessQuotes: ['Движение полностью перекрыто'],
+      sources: [{ title: 'ТГ Новороссийск' }],
+    });
+
+    expect(text).toContain('📍 улица Видова');
+    expect(text).toContain('🕒');
+    expect(text).toContain('🎥 Что говорят очевидцы:');
+  });
+
+  it('укорачивает длинный пост, сохраняя блок источников', () => {
+    const text = buildTelegramPost({
+      title: 'Заголовок',
+      body: 'Очень длинный текст новости. '.repeat(300),
+      sources: [{ title: 'ТГ Новороссийск' }],
+    });
+
+    expect(text.length).toBeLessThanOrEqual(4096);
+    // Атрибуция не должна теряться при обрезке.
+    expect(text).toContain('Источник:');
+    expect(text).toContain('ТГ Новороссийск');
   });
 });

@@ -1,0 +1,413 @@
+/*
+ * Карточка новости, редактор и панель видео (ТЗ §10, §12).
+ *
+ * Открываются поверх ленты, не убирая её из-под себя: контекст ленты
+ * сохраняется, как того требует ТЗ §27.
+ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #030509cc;
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--space-5);
+  animation: overlay-in 160ms ease-out;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.inspector-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Строка обязана сжиматься под высоту наложения. По умолчанию высота
+     строки grid считается по содержимому и ограничение max-height к ней
+     не применяется — панели вырастали выше экрана и прятали строку
+     действий с кнопками «Одобрить» и «Опубликовать». */
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 1700px;
+  /* Отступы задаёт само наложение, поэтому здесь ограничиваем высоту
+     его внутренней областью, а не высотой окна: иначе панель выходила
+     за нижний край и прятала строку действий. */
+  max-height: 100%;
+  align-items: stretch;
+}
+
+.inspector {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  animation: inspector-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes inspector-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.inspector__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
+}
+
+.inspector__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  min-height: 0;
+}
+
+.inspector__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* --- Содержимое карточки события ---------------------------------------- */
+
+.detail-section {
+  margin-bottom: var(--space-5);
+}
+
+.detail-section__title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.detail-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: var(--space-2);
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+/* Таблица «Информация» — пары «поле → значение». */
+.info-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 7px var(--space-3);
+  font-size: var(--text-base);
+}
+
+.info-grid__key {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.info-grid__value {
+  color: var(--text-primary);
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Список фактов с пометками подтверждения. */
+.fact-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fact {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-panel-alt);
+  border-radius: var(--radius);
+  border-left: 2px solid var(--border-default);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.fact--confirmed { border-left-color: var(--success); }
+.fact--assumption { border-left-color: var(--warning); }
+
+.fact__attribution {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 3px;
+  font-style: italic;
+}
+
+/* Галерея медиа. */
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--space-2);
+}
+
+.media-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-thumb__badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: #000000bb;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Источники события с оригинальными ссылками. */
+.source-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px var(--space-3);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  font-size: var(--text-base);
+  min-width: 0;
+}
+
+.source-chip__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Предпросмотр Telegram ------------------------------------------------ */
+
+/*
+ * Оформление намеренно повторяет вид сообщения в Telegram: пользователь
+ * должен видеть максимально близкий к реальному результат (ТЗ §12).
+ */
+.tg-preview {
+  background: #17212b;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  border: 1px solid #22303c;
+}
+
+.tg-preview__bubble {
+  background: #182533;
+  border-radius: 12px;
+  padding: 10px 12px;
+  max-width: 460px;
+  border: 1px solid #2b3d4f;
+}
+
+.tg-preview__media {
+  border-radius: 8px;
+  overflow: hidden;
+  margin: -2px -2px 8px;
+  display: grid;
+  gap: 2px;
+}
+
+.tg-preview__media--2 { grid-template-columns: 1fr 1fr; }
+.tg-preview__media--3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.tg-preview__media img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+/* Переносы строк и пробелы сохраняются как в реальном сообщении. */
+.tg-preview__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: #e9edf1;
+  font-family: var(--font-sans);
+}
+
+.tg-preview__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #6b7f92;
+}
+
+.tg-preview__counter {
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.tg-preview__counter--over {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* --- Видео и транскрипция -------------------------------------------------- */
+
+.video-panel__player {
+  width: 100%;
+  border-radius: var(--radius);
+  background: #000;
+  aspect-ratio: 16 / 9;
+}
+
+.video-panel__strip {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.video-panel__strip img {
+  width: 62px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transcript__segment {
+  display: flex;
+  gap: var(--space-3);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  transition: background var(--transition);
+  text-align: left;
+  width: 100%;
+}
+
+.transcript__segment:hover {
+  background: var(--bg-hover);
+}
+
+.transcript__segment--active {
+  background: var(--accent-soft);
+}
+
+.transcript__time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  flex-shrink: 0;
+  padding-top: 2px;
+  min-width: 42px;
+}
+
+/* Неразборчивый фрагмент показывается явно и не выдаётся за текст. */
+.transcript__segment--unclear .transcript__text {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.transcript__speaker {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-right: 5px;
+}
+
+/* --- Адаптивность инспектора ----------------------------------------------- */
+
+@media (max-width: 1400px) {
+  .inspector-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inspector-row > *:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .inspector-row {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: 100vh;
+    max-height: 100dvh;
+  }
+  .inspector-row > *:nth-child(2),
+  .inspector-row > *:nth-child(3) {
+    display: none;
+  }
+  .inspector {
+    border-radius: 0;
+    border: none;
+  }
+}

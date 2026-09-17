@@ -1,0 +1,127 @@
+/*
+ * Дизайн-система: DARK INTELLIGENCE / NEWSROOM (ТЗ §14).
+ *
+ * Все цвета, отступы и типографика заданы переменными. Экраны используют
+ * только переменные — это позволяет менять оформление централизованно и
+ * добавить светлую тему без правки компонентов.
+ */
+
+:root {
+  /* --- Фон: глубокий графит с синеватым оттенком ---------------------- */
+  --bg-root: #070b12;
+  --bg-canvas: #0a0f18;
+  --bg-panel: #0e1523;
+  --bg-panel-alt: #121a2b;
+  --bg-elevated: #16203348;
+  --bg-hover: #1a2436;
+  --bg-input: #0b1220;
+
+  /* --- Границы -------------------------------------------------------- */
+  --border-subtle: #1a2433;
+  --border-default: #22304a;
+  --border-strong: #2d3f5f;
+
+  /* --- Текст ---------------------------------------------------------- */
+  --text-primary: #e8eef7;
+  --text-secondary: #9aabc4;
+  --text-muted: #64748b;
+  --text-dim: #475569;
+
+  /* --- Акцент --------------------------------------------------------- */
+  --accent: #3b82f6;
+  --accent-hover: #2f6fed;
+  --accent-soft: #3b82f61f;
+  --accent-border: #3b82f655;
+
+  /* --- Семантика ------------------------------------------------------ */
+  --danger: #ef4444;
+  --danger-soft: #ef44441f;
+  --warning: #f59e0b;
+  --warning-soft: #f59e0b1f;
+  --success: #10b981;
+  --success-soft: #10b9811f;
+  --info: #22d3ee;
+  --info-soft: #22d3ee1f;
+  --live: #22c55e;
+
+  /* --- Категории (совпадают с цветами в БД) --------------------------- */
+  --cat-dtp: #ef4444;
+  --cat-incidents: #f97316;
+  --cat-fire: #dc2626;
+  --cat-crime: #b91c1c;
+  --cat-city: #3b82f6;
+  --cat-transport: #22d3ee;
+  --cat-utilities: #8b5cf6;
+  --cat-weather: #0ea5e9;
+  --cat-government: #6366f1;
+  --cat-economy: #f59e0b;
+  --cat-society: #10b981;
+  --cat-events: #ec4899;
+  --cat-sport: #84cc16;
+  --cat-other: #94a3b8;
+
+  /* --- Типографика ---------------------------------------------------- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-3xl: 34px;
+
+  /* --- Сетка ---------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --sidebar-width: 212px;
+  --header-height: 76px;
+
+  /* --- Тени ----------------------------------------------------------- */
+  --shadow-panel: 0 1px 2px #0006;
+  --shadow-raised: 0 4px 16px #00000055;
+  --shadow-modal: 0 24px 64px #000000aa;
+
+  --transition: 140ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Светлая тема. Панель ориентирована на тёмную по ТЗ, но переключатель
+ * предусмотрен в подвале макета, поэтому вариант описан полностью.
+ */
+:root[data-theme='light'] {
+  --bg-root: #f1f5f9;
+  --bg-canvas: #f8fafc;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #f8fafc;
+  --bg-elevated: #f1f5f9;
+  --bg-hover: #eef2f7;
+  --bg-input: #ffffff;
+
+  --border-subtle: #e2e8f0;
+  --border-default: #cbd5e1;
+  --border-strong: #94a3b8;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --shadow-panel: 0 1px 2px #0f172a14;
+  --shadow-raised: 0 4px 16px #0f172a1a;
+  --shadow-modal: 0 24px 64px #0f172a33;
+}

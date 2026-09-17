@@ -1,0 +1,428 @@
+/*
+ * Каркас панели мониторинга (ТЗ §14).
+ *
+ * Слева — постоянная навигация, сверху — строка состояния с ключевыми
+ * показателями, в центре — рабочая область. Ощущение «центра управления»
+ * создаётся плотной информационной сеткой, а не декоративными элементами.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg-root);
+}
+
+/* --- Боковая навигация ------------------------------------------------ */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.sidebar__logo {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #1e3a6e, #0f2347);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.sidebar__brand-text {
+  min-width: 0;
+}
+
+.sidebar__title {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__subtitle {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sidebar__nav {
+  padding: var(--space-3) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 9px var(--space-3);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  transition: background var(--transition), color var(--transition);
+  position: relative;
+  text-decoration: none;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.nav-item--active {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Полоса-указатель активного раздела. */
+.nav-item--active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+
+.nav-item__icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+/* --- Состояние системы в подвале навигации ---------------------------- */
+
+.system-status {
+  margin: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.system-status__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.system-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+  flex-shrink: 0;
+}
+
+.system-status__dot--degraded {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-soft);
+}
+
+.system-status__dot--failing {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.system-status__meta {
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* --- Основная область -------------------------------------------------- */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  min-height: var(--header-height);
+}
+
+.topbar__heading {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.topbar__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.topbar__title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.topbar__subtitle {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--success-soft);
+  border: 1px solid #10b98155;
+  color: var(--live);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.live-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+.live-badge--offline {
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+  color: var(--text-muted);
+}
+
+.live-badge--offline .live-badge__dot {
+  background: var(--text-dim);
+  animation: none;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+.topbar__stats {
+  display: flex;
+  gap: var(--space-3);
+  margin-left: auto;
+  align-items: center;
+}
+
+.topbar__clock {
+  text-align: right;
+  padding-left: var(--space-5);
+  border-left: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.topbar__date {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.topbar__time {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* --- Рабочая область --------------------------------------------------- */
+
+.workspace {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-5) var(--space-6) var(--space-8);
+  background: var(--bg-root);
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Верхний ряд дашборда: график, категории, источники, события. */
+.grid--dashboard-top {
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/*
+ * Высота верхнего ряда ограничена: списки в нём могут содержать десятки
+ * записей, и без ограничения один длинный список растягивал бы весь ряд,
+ * оставляя у графика большое пустое поле. Плотность информации важнее,
+ * чем возможность увидеть весь список без прокрутки, — полные списки
+ * открываются по ссылке «Смотреть все».
+ */
+.grid--dashboard-top > .panel {
+  max-height: 324px;
+}
+
+.grid--dashboard-top > .panel > .panel__body {
+  overflow-y: auto;
+}
+
+/* Нижний ряд: фильтры, лента, правая колонка. */
+.grid--dashboard-main {
+  grid-template-columns: 236px minmax(0, 1fr) 372px;
+  align-items: start;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* --- Адаптивность (ТЗ §26) --------------------------------------------- */
+
+@media (max-width: 1500px) {
+  .grid--dashboard-top {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .grid--dashboard-top > *:nth-child(4) {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 1240px) {
+  .grid--dashboard-main {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .grid--dashboard-main > *:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 1000px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+    box-shadow: var(--shadow-modal);
+  }
+  .sidebar--open {
+    transform: translateX(0);
+  }
+  .grid--dashboard-top,
+  .grid--dashboard-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid--dashboard-top > *:nth-child(4),
+  .grid--dashboard-main > *:last-child {
+    grid-column: span 1;
+  }
+  .topbar__stats {
+    display: none;
+  }
+  .workspace {
+    padding: var(--space-4);
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    padding: var(--space-3) var(--space-4);
+  }
+  .topbar__title {
+    font-size: var(--text-xl);
+  }
+  .topbar__clock {
+    display: none;
+  }
+}
+
+/* Затемнение под выдвижной навигацией на узких экранах. */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #000000aa;
+  z-index: 50;
+  border: none;
+}
+
+.menu-toggle {
+  display: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  place-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+@media (max-width: 1000px) {
+  .menu-toggle {
+    display: grid;
+  }
+}

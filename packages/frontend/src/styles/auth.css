@@ -1,0 +1,59 @@
+/* Экран входа. Приватная система: регистрации нет, только вход владельца. */
+
+.auth {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background:
+    radial-gradient(1000px 600px at 50% -10%, #12233d 0%, transparent 60%),
+    var(--bg-root);
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 388px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  padding: var(--space-8);
+}
+
+.auth__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.auth__title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.auth__subtitle {
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.auth__note {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.6;
+  text-align: center;
+}
