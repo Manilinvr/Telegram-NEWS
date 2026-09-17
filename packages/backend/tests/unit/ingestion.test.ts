@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parsePreviewPage } from '../../src/modules/ingestion/telegram.js';
+import { VkSourceAdapter } from '../../src/modules/ingestion/vk.js';
+import { loadConfig } from '../../src/config/env.js';
 import { htmlToText, decodeEntities } from '../../src/modules/ingestion/html.js';
 import { buildTelegramPost } from '../../src/modules/pipeline/telegram-format.js';
 import {
@@ -238,5 +240,49 @@ describe('Формирование Telegram-поста', () => {
     // Атрибуция не должна теряться при обрезке.
     expect(text).toContain('Источник:');
     expect(text).toContain('ТГ Новороссийск');
+  });
+});
+
+describe('VK: определение сообщества по ссылке', () => {
+  const adapter = new VkSourceAdapter(
+    loadConfig({
+      DATABASE_URL: 'postgresql://u:p@localhost:5432/d',
+      SESSION_SECRET: 'x'.repeat(48),
+      CSRF_SECRET: 'y'.repeat(48),
+      VK_ACCESS_TOKEN: 'vk1.a.test',
+    }),
+  );
+
+  // resolveTarget закрыт, поэтому проверяем через публичное поведение.
+  const target = (source: { username?: string | null; url?: string | null; externalId?: string | null }) =>
+    (adapter as unknown as {
+      resolveTarget: (s: unknown) => Record<string, string>;
+    }).resolveTarget({ externalId: null, username: null, url: null, ...source });
+
+  it('берёт короткое имя, когда оно указано явно', () => {
+    expect(target({ username: 'nvrsk_life' })).toEqual({ domain: 'nvrsk_life' });
+  });
+
+  it('понимает ссылку на vk.ru — основной домен VK в России', () => {
+    expect(target({ url: 'https://vk.ru/nvrsk_life' })).toEqual({ domain: 'nvrsk_life' });
+  });
+
+  it('понимает vk.com и мобильный m.vk.com', () => {
+    expect(target({ url: 'https://vk.com/nvrsk_life' })).toEqual({ domain: 'nvrsk_life' });
+    expect(target({ url: 'https://m.vk.com/nvrsk_life' })).toEqual({ domain: 'nvrsk_life' });
+  });
+
+  it('числовой owner_id важнее ссылки', () => {
+    expect(target({ externalId: '-12345', url: 'https://vk.ru/nvrsk_life' })).toEqual({
+      owner_id: '-12345',
+    });
+  });
+
+  it('не принимает чужой домен, похожий на vk', () => {
+    expect(() => target({ url: 'https://notvk.com/nvrsk_life' })).toThrow(/owner_id/);
+  });
+
+  it('не принимает ссылку на Telegram', () => {
+    expect(() => target({ url: 'https://t.me/nvrsk_life' })).toThrow(/owner_id/);
   });
 });

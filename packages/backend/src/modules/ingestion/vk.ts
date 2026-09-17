@@ -162,7 +162,9 @@ export class VkSourceAdapter implements SourceAdapter {
     if (source.externalId) return { owner_id: source.externalId };
     const domain =
       source.username ??
-      /vk\.com\/([A-Za-z0-9._]+)/.exec(source.url ?? '')?.[1] ??
+      // vk.ru — основной домен VK в России, ссылки чаще копируют именно
+      // оттуда; m.vk.com приходит с телефонов.
+      /(?:^|\/\/)(?:m\.)?vk\.(?:com|ru)\/([A-Za-z0-9._]+)/.exec(source.url ?? '')?.[1] ??
       null;
     if (!domain) {
       throw new SourceFetchError('Для источника VK не указан ни owner_id, ни короткое имя.', false);
