@@ -48,6 +48,20 @@ const envSchema = z
     API_PORT: int(4000),
     PUBLIC_WEB_ORIGIN: z.string().default('http://localhost:5173'),
     TRUST_PROXY: bool(false),
+    /**
+     * Путь к собранному интерфейсу относительно корня проекта.
+     * Если сборки нет, процесс отдаёт только API.
+     */
+    FRONTEND_DIST_PATH: z.string().default('packages/frontend/dist'),
+    /**
+     * Запускать ли воркер внутри процесса API.
+     *
+     * Для личной установки с десятком источников это разумно: один
+     * процесс вместо двух. При росте нагрузки воркер выносится отдельно,
+     * чтобы транскрипция и обращения к модели не конкурировали
+     * с обслуживанием интерфейса.
+     */
+    RUN_WORKER_IN_API: bool(false),
 
     DATABASE_URL: z.string().min(1, 'DATABASE_URL обязателен'),
     DATABASE_POOL_MAX: int(10),
@@ -84,6 +98,16 @@ const envSchema = z
 
     BOOTSTRAP_ADMIN_EMAIL: z.string().default('efimenkodaniil151@gmail.ru'),
     BOOTSTRAP_ADMIN_PASSWORD: optionalStr,
+    /**
+     * Создавать владельца при старте, если его ещё нет.
+     *
+     * Нужно для хостингов, где неудобно выполнять разовые команды.
+     * Требует заданного BOOTSTRAP_ADMIN_PASSWORD. Действие идемпотентно:
+     * существующая учётная запись не пересоздаётся и пароль не
+     * сбрасывается. После первого входа переменную с паролем следует
+     * удалить из окружения.
+     */
+    BOOTSTRAP_ON_STARTUP: bool(false),
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     STORAGE_LOCAL_PATH: z.string().default('./storage/media'),

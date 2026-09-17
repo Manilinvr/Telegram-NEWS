@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+docs
+supabase
+scripts
+storage
+backups
+tmp
+coverage
+*.log
+.env
+.env.*
+!.env.example
+packages/backend/tests

@@ -15,6 +15,7 @@ import mediaRoutes from './routes/media.js';
 import moderationRoutes from './routes/moderation.js';
 import settingsRoutes from './routes/settings.js';
 import sourceRoutes from './routes/sources.js';
+import { registerStaticFrontend } from './static.js';
 
 /**
  * Сборка HTTP-приложения.
@@ -70,9 +71,6 @@ export async function buildServer(config: AppConfig, db: Database): Promise<Fast
     });
   });
 
-  app.setNotFoundHandler((request, reply) => {
-    reply.code(404).send({ error: 'NOT_FOUND', message: `Маршрут ${request.url} не найден.` });
-  });
 
   await app.register(
     async (api) => {
@@ -88,6 +86,25 @@ export async function buildServer(config: AppConfig, db: Database): Promise<Fast
     },
     { prefix: '/api' },
   );
+
+  const hasFrontend = await registerStaticFrontend(app, config);
+
+  /**
+   * Единственный обработчик несуществующих маршрутов.
+   *
+   * Запросы к API получают JSON-ошибку. Остальные, когда интерфейс
+   * отдаётся этим же процессом, получают index.html: навигация в панели
+   * клиентская, и перезагрузка страницы на /feed обязана вернуть
+   * приложение, а не 404.
+   */
+  app.setNotFoundHandler((request, reply) => {
+    if (!hasFrontend || request.url.startsWith('/api/')) {
+      return reply
+        .code(404)
+        .send({ error: 'NOT_FOUND', message: `Маршрут ${request.url} не найден.` });
+    }
+    return reply.sendFile('index.html');
+  });
 
   return app;
 }

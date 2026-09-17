@@ -79,6 +79,10 @@ npm run dev
 
 Панель откроется на <http://localhost:5173>, API — на порту 4000.
 
+Для развёртывания в интернете см. **[docs/DEPLOY.md](docs/DEPLOY.md)**:
+собранный интерфейс отдаётся тем же процессом, что и API, поэтому нужен
+один сервис и один адрес.
+
 ### Демонстрационные данные
 
 Чтобы увидеть систему в работе до подключения реальных источников:
@@ -115,6 +119,7 @@ npm run seed:demo -w @nnm/backend
 
 | Документ | О чём |
 |---|---|
+| **[docs/DEPLOY.md](docs/DEPLOY.md)** | **Запуск сайта с нуля — начните отсюда** |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Устройство системы и принятые решения |
 | [docs/API.md](docs/API.md) | Описание HTTP API |
 | [docs/SETUP-SOURCES.md](docs/SETUP-SOURCES.md) | Подключение Telegram и VK |
