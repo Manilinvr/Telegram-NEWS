@@ -57,7 +57,13 @@ export async function bootstrapOwner(
 
   const policyError = validatePasswordPolicy(password);
   if (policyError) {
-    throw new Error(`Пароль не соответствует политике: ${policyError}`);
+    // Длина указывается намеренно: без неё невозможно отличить
+    // «задан короткий пароль» от «переменная окружения не обновилась».
+    // Сам пароль в журнал не попадает.
+    const source = provided
+      ? `значение BOOTSTRAP_ADMIN_PASSWORD длиной ${password.length} симв.`
+      : 'сгенерированный пароль';
+    throw new Error(`Пароль не соответствует политике (${source}): ${policyError}`);
   }
 
   await users.create({
