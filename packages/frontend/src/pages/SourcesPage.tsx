@@ -47,6 +47,14 @@ export function SourcesPage() {
 
   const adapters = sources.data?.adapters ?? [];
 
+  // Предупреждать только о тех площадках, которые человек реально
+  // использует. Раньше не настроенный ВК висел красным у всех, включая
+  // тех, кто сознательно работает на одном Telegram, — предупреждение без
+  // повода приучает не читать предупреждения.
+  const usedTypes = new Set<string>((sources.data?.sources ?? []).map((source) => source.type));
+  const blocking = adapters.filter((a) => !a.configured && usedTypes.has(a.type));
+  const availableLater = adapters.filter((a) => !a.configured && !usedTypes.has(a.type));
+
   return (
     <>
       <PageHeader
@@ -62,19 +70,27 @@ export function SourcesPage() {
       <div className="workspace stack">
         {notice && <Alert tone={notice.tone}>{notice.text}</Alert>}
 
-        {/* Состояние адаптеров: настроенность видна сразу, до попытки опроса. */}
-        {adapters.some((a) => !a.configured) && (
-          <Alert tone="warning" title="Не все типы источников настроены">
+        {/* Настроенность видна до попытки опроса — но только там, где она мешает. */}
+        {blocking.length > 0 && (
+          <Alert tone="warning" title="Источники не будут опрошены">
             <ul style={{ paddingLeft: 16, margin: '4px 0 0' }}>
-              {adapters
-                .filter((a) => !a.configured)
-                .map((a) => (
-                  <li key={a.type}>
-                    {a.type}: {a.reason}
-                  </li>
-                ))}
+              {blocking.map((a) => (
+                <li key={a.type}>
+                  {a.type}: {a.reason}
+                </li>
+              ))}
             </ul>
           </Alert>
+        )}
+
+        {/* Ненастроенная площадка без источников — не проблема, а сведение:
+            показывается спокойной строкой, только когда форма открыта. */}
+        {showForm && availableLater.length > 0 && (
+          <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+            Пока не подключено:{' '}
+            {availableLater.map((a) => a.type).join(', ')}. Источники этих
+            площадок добавить не получится, остальные работают как обычно.
+          </p>
         )}
 
         {showForm && (
