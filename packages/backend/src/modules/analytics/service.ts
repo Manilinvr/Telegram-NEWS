@@ -67,8 +67,10 @@ export class AnalyticsService {
       ),
       this.db.one(
         `SELECT
-           count(*) FILTER (WHERE published_at > now() - interval '24 hours' AND error IS NULL)::int AS last24h,
-           count(*) FILTER (WHERE error IS NULL)::int AS total
+           -- Сухой прогон ничего не отправляет и публикацией не считается.
+           count(*) FILTER (WHERE published_at > now() - interval '24 hours'
+                              AND error IS NULL AND NOT dry_run)::int AS last24h,
+           count(*) FILTER (WHERE error IS NULL AND NOT dry_run)::int AS total
          FROM publications`,
       ),
       this.db.one(

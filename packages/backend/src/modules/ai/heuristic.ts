@@ -1,6 +1,6 @@
 import type { AiEventAnalysis, AiPostClassification, Importance } from '@nnm/shared';
 import { FALLBACK_CATEGORY_SLUG } from '@nnm/shared';
-import { extractEntities, firstSentence, normalizeForAnalysis, truncate, wordStems, matchesPhrase } from '../../lib/text.js';
+import { extractEntities, firstSentence, normalizeForAnalysis, stripPromotional, truncate, wordStems, matchesPhrase } from '../../lib/text.js';
 
 /**
  * Эвристический анализатор.
@@ -74,7 +74,8 @@ export class HeuristicAnalyzer {
       importance,
       isNews: !NON_NEWS_MARKERS.some((pattern) => pattern.test(text)) && text.length >= 30,
       location: this.extractLocation(text),
-      headline: truncate(firstSentence(text) || text, 200) || 'Публикация без текста',
+      headline:
+        truncate(stripPromotional(firstSentence(text) || text), 200) || 'Публикация без текста',
       entities: extractEntities(input.text),
       // Уверенность эвристики заведомо ниже, чем у модели: материал
       // должен пройти через человека.
@@ -100,8 +101,11 @@ export class HeuristicAnalyzer {
     const facts = this.extractFacts(input.posts);
     const uncertainties = this.extractUncertainties(input.posts);
 
-    const title = truncate(firstSentence(text) || text, 180) || 'Событие без заголовка';
-    const summary = truncate(text, 400);
+    // Из чужого поста в наш черновик не должны попадать ссылки, упоминания
+    // каналов и призывы подписаться.
+    const clean = stripPromotional(text);
+    const title = truncate(firstSentence(clean) || clean, 180) || 'Событие без заголовка';
+    const summary = truncate(clean, 400);
 
     const witnessQuotes = input.transcripts
       .flatMap((transcript) => this.pickQuotes(transcript.text))
@@ -126,7 +130,7 @@ export class HeuristicAnalyzer {
       facts,
       uncertainties,
       sourceClaims: input.posts.map((post) => ({
-        claim: truncate(firstSentence(post.text) || post.text, 400),
+        claim: truncate(stripPromotional(firstSentence(post.text) || post.text), 400),
         sourceIndex: post.index,
         attribution: detectAttribution(post.text),
       })),

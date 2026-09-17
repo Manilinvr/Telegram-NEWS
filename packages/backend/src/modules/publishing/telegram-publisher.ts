@@ -15,8 +15,19 @@ const log = childLogger({ module: 'telegram-publisher' });
  */
 
 export interface PublishMedia {
-  /** Публичный или временный URL файла. */
-  url: string;
+  /**
+   * Содержимое файла.
+   *
+   * Телеграму отдаётся сам файл, а не ссылка на него. Ссылка не подходит
+   * принципиально: хранилище приватно, и адрес вида `/api/media/...`
+   * относительный — Telegram отвечал на него
+   * «invalid file HTTP URL specified: URL host is empty». Публиковать
+   * пришлось бы через общедоступный адрес, то есть открыть хранилище
+   * наружу. Отправка байтами обходится без этого.
+   */
+  data: Buffer;
+  filename: string;
+  mimeType: string | null;
   type: 'PHOTO' | 'VIDEO';
   caption?: string | null;
 }
@@ -149,37 +160,59 @@ export class TelegramPublisher {
    */
   private async sendMedia(text: string, media: PublishMedia[]): Promise<string | null> {
     const items = media.slice(0, TELEGRAM_MEDIA_GROUP_LIMIT);
+    const form = new FormData();
+    form.set('chat_id', this.channel);
 
     if (items.length === 1) {
       const item = items[0] as PublishMedia;
       const method = item.type === 'VIDEO' ? 'sendVideo' : 'sendPhoto';
-      const body = await this.call<{
+      form.set('caption', text);
+      form.set(item.type === 'VIDEO' ? 'video' : 'photo', toBlob(item), item.filename);
+
+      const body = await this.callForm<{
         ok: boolean;
         result?: { message_id: number };
         description?: string;
-      }>(method, {
-        chat_id: this.channel,
-        [item.type === 'VIDEO' ? 'video' : 'photo']: item.url,
-        caption: text,
-      });
+      }>(method, form);
       if (!body.ok) throw new Error(body.description ?? 'Telegram отклонил медиа');
       return body.result ? String(body.result.message_id) : null;
     }
 
-    const group = items.map((item, index) => ({
-      type: item.type === 'VIDEO' ? 'video' : 'photo',
-      media: item.url,
-      ...(index === 0 ? { caption: text } : {}),
-    }));
+    // Для группы файлы прикладываются отдельными частями запроса, а в
+    // описании группы на них ссылаются через attach://<имя части>.
+    const group = items.map((item, index) => {
+      const part = `file${index}`;
+      form.set(part, toBlob(item), item.filename);
+      return {
+        type: item.type === 'VIDEO' ? 'video' : 'photo',
+        media: `attach://${part}`,
+        ...(index === 0 ? { caption: text } : {}),
+      };
+    });
+    form.set('media', JSON.stringify(group));
 
-    const body = await this.call<{
+    const body = await this.callForm<{
       ok: boolean;
       result?: Array<{ message_id: number }>;
       description?: string;
-    }>('sendMediaGroup', { chat_id: this.channel, media: JSON.stringify(group) });
+    }>('sendMediaGroup', form);
 
     if (!body.ok) throw new Error(body.description ?? 'Telegram отклонил медиа-группу');
     return body.result?.[0] ? String(body.result[0].message_id) : null;
+  }
+
+  /** Вызов с передачей файлов: тело запроса — multipart, не JSON. */
+  private async callForm<T>(method: string, form: FormData): Promise<T> {
+    const response = await fetch(
+      `https://api.telegram.org/bot${this.config.TELEGRAM_PUBLISH_BOT_TOKEN}/${method}`,
+      { method: 'POST', body: form, signal: AbortSignal.timeout(120_000) },
+    );
+
+    const body = (await response.json()) as T & { description?: string };
+    if (!response.ok && !(body as { ok?: boolean }).ok) {
+      throw new Error(body.description ?? `Telegram API вернул HTTP ${response.status}`);
+    }
+    return body;
   }
 
   private async call<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -199,4 +232,11 @@ export class TelegramPublisher {
     }
     return body;
   }
+}
+
+/** Файл для отправки в multipart-запросе. */
+function toBlob(item: PublishMedia): Blob {
+  return new Blob([new Uint8Array(item.data)], {
+    type: item.mimeType ?? (item.type === 'VIDEO' ? 'video/mp4' : 'image/jpeg'),
+  });
 }

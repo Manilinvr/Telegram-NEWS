@@ -11,6 +11,7 @@ import {
   normalizeForAnalysis,
   significantWords,
   stem,
+  stripPromotional,
 } from '../../src/lib/text.js';
 
 /** Фрагмент разметки страницы предпросмотра канала. */
@@ -284,5 +285,46 @@ describe('VK: определение сообщества по ссылке', ()
 
   it('не принимает ссылку на Telegram', () => {
     expect(() => target({ url: 'https://t.me/nvrsk_life' })).toThrow(/owner_id/);
+  });
+});
+
+describe('Очистка чужого поста от рекламы и ссылок', () => {
+  // Взято из настоящих постов, попавших в черновики.
+  it('убирает призыв подписаться вместе со ссылкой', () => {
+    const out = stripPromotional(
+      '17.09.26 ДТП ул. Чапаева - Шоссейная Не грузятся фото/видео? Подпишись на https://t.me/nvrsk_road',
+    );
+    expect(out).not.toMatch(/Подпишись/i);
+    expect(out).not.toMatch(/t\.me/);
+    expect(out).not.toMatch(/грузятся фото/i);
+    expect(out).toContain('ДТП ул. Чапаева');
+  });
+
+  it('убирает упоминание канала через @ и «наш канал»', () => {
+    const out = stripPromotional('Пожар на Анапском шоссе. Подписывайтесь на наш канал @nvrsk_news');
+    expect(out).not.toMatch(/@nvrsk_news/);
+    expect(out).not.toMatch(/Подписывайтесь/i);
+    expect(out).toContain('Пожар на Анапском шоссе');
+  });
+
+  it('убирает ссылки без схемы, метку рекламы и erid', () => {
+    const out = stripPromotional('Авария на Видова. Прислать новость: t.me/chp_nvrsk Реклама erid: 2Vfnxw');
+    expect(out).not.toMatch(/t\.me|erid|Реклама/i);
+    expect(out).toContain('Авария на Видова');
+  });
+
+  it('убирает ссылки на ВКонтакте', () => {
+    expect(stripPromotional('Новость. Источник vk.com/nvrsk_life и vk.ru/other')).not.toMatch(/vk\.(com|ru)/);
+  });
+
+  it('не трогает обычный текст', () => {
+    const text = 'В Новороссийске на улице Видова произошло ДТП, пострадавших нет.';
+    expect(stripPromotional(text)).toBe(text);
+  });
+
+  it('не оставляет двойных пробелов и пробелов перед знаками', () => {
+    const out = stripPromotional('Новость https://t.me/x , продолжение.');
+    expect(out).not.toMatch(/ {2}/);
+    expect(out).not.toMatch(/\s,/);
   });
 });

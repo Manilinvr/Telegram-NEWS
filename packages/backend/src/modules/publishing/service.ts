@@ -287,7 +287,7 @@ export class PublishingService {
   /** Медиа события с временными ссылками для Telegram. */
   private async collectMedia(eventId: string): Promise<{ items: PublishMedia[]; ids: string[] }> {
     const rows = await this.db.many(
-      `SELECT m.id, m.type, m.storage_key, m.caption
+      `SELECT m.id, m.type, m.storage_key, m.caption, m.mime_type
          FROM event_sources es
          JOIN media m ON m.source_post_id = es.source_post_id
         WHERE es.event_id = $1
@@ -302,10 +302,23 @@ export class PublishingService {
     const ids: string[] = [];
 
     for (const row of rows) {
-      // Ссылка должна прожить дольше, чем занимает доставка в Telegram.
-      const url = await this.storage.signedUrl(String(row.storage_key), 3600);
+      const key = String(row.storage_key);
+      // Файл читается из хранилища и уходит в Telegram содержимым.
+      // Ссылку дать нельзя: хранилище приватно, а локальный адрес
+      // относительный — Telegram такую ссылку не открывает.
+      let data: Buffer;
+      try {
+        data = await this.storage.get(key);
+      } catch {
+        // Файл мог исчезнуть (недолговечный диск хостинга). Новость
+        // важнее вложения: публикуем без него, а не отменяем отправку.
+        continue;
+      }
+
       items.push({
-        url,
+        data,
+        filename: key.slice(key.lastIndexOf('/') + 1),
+        mimeType: row.mime_type ? String(row.mime_type) : null,
         type: String(row.type) as 'PHOTO' | 'VIDEO',
         caption: row.caption ? String(row.caption) : null,
       });

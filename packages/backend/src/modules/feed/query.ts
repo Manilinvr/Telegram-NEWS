@@ -159,7 +159,12 @@ export class FeedQueryService {
       LEFT JOIN moderation_queue mq ON mq.event_id = e.id
       LEFT JOIN ai_drafts d ON d.event_id = e.id AND d.is_current
       LEFT JOIN LATERAL (
-        SELECT p.id FROM publications p WHERE p.event_id = e.id AND p.error IS NULL LIMIT 1
+        -- Опубликованным считается только то, что действительно ушло в
+        -- канал. Сухой прогон (dry_run) проходит весь путь, но ничего не
+        -- отправляет, и раньше помечался как «Опубликовано» — из-за чего
+        -- в разделе «Опубликованные» висели новости, которых в канале нет.
+        SELECT p.id FROM publications p
+         WHERE p.event_id = e.id AND p.error IS NULL AND NOT p.dry_run LIMIT 1
       ) pub ON true
       LEFT JOIN LATERAL (
         SELECT
