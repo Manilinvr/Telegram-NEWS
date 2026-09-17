@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Образ с pgvector: проверяем и путь с расширением, и без него.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nnm
+          POSTGRES_PASSWORD: nnm
+          POSTGRES_DB: nnm_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nnm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://nnm:nnm@localhost:5432/nnm_test
+      NODE_ENV: test
+      SESSION_SECRET: ci-session-secret-not-used-in-production-00000000
+      CSRF_SECRET: ci-csrf-secret-not-used-in-production-0000000000
+      AI_PROVIDER: mock
+      EMBEDDING_PROVIDER: local
+      TRANSCRIPTION_PROVIDER: mock
+      TELEGRAM_INGEST_MODE: none
+      STORAGE_DRIVER: local
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Пакет общих типов собирается первым: от него зависят остальные.
+      - run: npm run build -w @nnm/shared
+
+      - name: Проверка типов (включая тесты)
+        run: npm run typecheck
+
+      - name: Миграции
+        run: npm run migrate -w @nnm/backend
+
+      - name: Тесты
+        run: npm test -w @nnm/backend
+
+      - name: Сборка
+        run: npm run build
