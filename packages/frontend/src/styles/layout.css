@@ -222,6 +222,17 @@
   color: var(--text-muted);
   margin-top: 2px;
   white-space: nowrap;
+  /* На узком экране строка не влезает и обрезалась посреди слова.
+     Многоточие честнее обрыва, а на телефоне подпись и вовсе не нужна:
+     название раздела говорит само за себя. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .topbar__subtitle {
+    display: none;
+  }
 }
 
 .live-badge {
