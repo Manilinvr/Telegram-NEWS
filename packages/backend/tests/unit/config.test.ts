@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { loadConfig } from '../../src/config/env.js';
+import { buildSslOptions } from '../../src/db/pool.js';
 
 /**
  * Конфигурация — единственное место, где установка соприкасается
@@ -39,5 +43,65 @@ describe('loadConfig: защита production', () => {
   it('требует DATABASE_URL', () => {
     const { DATABASE_URL: _omit, ...withoutDb } = base;
     expect(() => loadConfig(withoutDb)).toThrow(/DATABASE_URL/);
+  });
+});
+
+describe('buildSslOptions: подключение к базе по TLS', () => {
+  const withSsl = (extra: Record<string, string> = {}) =>
+    loadConfig({ ...base, DATABASE_SSL: 'true', ...extra });
+
+  it('без SSL параметров TLS нет', () => {
+    expect(buildSslOptions(loadConfig({ ...base }))).toBeUndefined();
+  });
+
+  it('по умолчанию проверяет подлинность сервера', () => {
+    expect(buildSslOptions(withSsl())).toEqual({ rejectUnauthorized: true });
+  });
+
+  it('принимает сертификат как содержимое PEM', () => {
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+    expect(buildSslOptions(withSsl({ DATABASE_SSL_CA: pem }))).toEqual({
+      ca: pem,
+      rejectUnauthorized: true,
+    });
+  });
+
+  it('разворачивает \\n, как их передают панели хостингов', () => {
+    const raw = '-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----';
+    const result = buildSslOptions(withSsl({ DATABASE_SSL_CA: raw }));
+    expect(result?.ca).toBe('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----');
+    expect(result?.rejectUnauthorized).toBe(true);
+  });
+
+  it('читает сертификат из файла', () => {
+    const file = path.join(tmpdir(), `ca-${Date.now()}.crt`);
+    writeFileSync(file, '-----BEGIN CERTIFICATE-----\nFROMFILE\n-----END CERTIFICATE-----');
+    try {
+      expect(buildSslOptions(withSsl({ DATABASE_SSL_CA: file }))?.ca).toContain('FROMFILE');
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  it('объясняет, что делать, если файл сертификата не найден', () => {
+    expect(() => buildSslOptions(withSsl({ DATABASE_SSL_CA: '/нет/такого.crt' }))).toThrow(
+      /DATABASE_SSL_CA/,
+    );
+  });
+
+  it('позволяет явно отключить проверку подлинности', () => {
+    expect(buildSslOptions(withSsl({ DATABASE_SSL_REJECT_UNAUTHORIZED: 'false' }))).toEqual({
+      rejectUnauthorized: false,
+    });
+  });
+
+  it('сертификат важнее отключённой проверки', () => {
+    // Иначе одна забытая переменная тихо обесценила бы сертификат.
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+    expect(
+      buildSslOptions(
+        withSsl({ DATABASE_SSL_CA: pem, DATABASE_SSL_REJECT_UNAUTHORIZED: 'false' }),
+      ),
+    ).toEqual({ ca: pem, rejectUnauthorized: true });
   });
 });

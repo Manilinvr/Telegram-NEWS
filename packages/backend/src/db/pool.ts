@@ -1,4 +1,6 @@
 import pg from 'pg';
+import { readFileSync } from 'node:fs';
+import type { ConnectionOptions } from 'node:tls';
 import type { AppConfig } from '../config/env.js';
 import { getConfig } from '../config/env.js';
 import { logger } from '../lib/logger.js';
@@ -123,11 +125,63 @@ function buildDatabase(
   };
 }
 
+/**
+ * Параметры TLS для подключения к базе.
+ *
+ * Разнесено в отдельную функцию, потому что это место, где ошибка
+ * означает либо упавший запуск, либо молча незащищённое соединение —
+ * и то и другое должно проверяться тестами.
+ *
+ * Три случая:
+ *  - SSL выключен — параметров нет;
+ *  - задан корневой сертификат — проверяем по нему (так подключается
+ *    Supabase: его пулер предъявляет цепочку, которой нет в списке
+ *    доверенных у Node);
+ *  - проверка явно отключена — шифруем, но подлинность сервера не
+ *    подтверждаем; об этом предупреждаем в журнале.
+ */
+export function buildSslOptions(config: AppConfig): ConnectionOptions | undefined {
+  if (!config.DATABASE_SSL) return undefined;
+
+  const ca = readCa(config.DATABASE_SSL_CA);
+  if (ca) {
+    return { ca, rejectUnauthorized: true };
+  }
+
+  if (!config.DATABASE_SSL_REJECT_UNAUTHORIZED) {
+    logger.warn(
+      'Подлинность сервера БД не проверяется (DATABASE_SSL_REJECT_UNAUTHORIZED=false). ' +
+        'Соединение шифруется, но подмену сервера это не исключает. ' +
+        'Надёжный способ — указать DATABASE_SSL_CA.',
+    );
+    return { rejectUnauthorized: false };
+  }
+
+  return { rejectUnauthorized: true };
+}
+
+/** Сертификат принимается и как содержимое PEM, и как путь к файлу. */
+function readCa(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.includes('-----BEGIN')) {
+    // В переменных окружения переводы строк часто приходят как \n.
+    return value.includes('\\n') ? value.replace(/\\n/g, '\n') : value;
+  }
+  try {
+    return readFileSync(value, 'utf8');
+  } catch (error) {
+    throw new Error(
+      `Не удалось прочитать сертификат из DATABASE_SSL_CA (${value}): ${(error as Error).message}. ` +
+        'Укажите путь к существующему файлу либо вставьте содержимое сертификата целиком.',
+    );
+  }
+}
+
 export function createDatabase(config: AppConfig = getConfig()): Database {
   const pool = new Pool({
     connectionString: config.DATABASE_URL,
     max: config.DATABASE_POOL_MAX,
-    ssl: config.DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
+    ssl: buildSslOptions(config),
     // Не даём «зависшим» запросам удерживать соединение бесконечно.
     //
     // Эти два параметра передаются в стартовом пакете соединения. Пулеры

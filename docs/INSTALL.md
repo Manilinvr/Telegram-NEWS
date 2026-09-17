@@ -183,6 +183,7 @@ npm run doctor
 | `relation "users" already exists` | Схема ставилась не файлом `setup.sql`. Выполните `npm run migrate:baseline -w @nnm/backend` |
 | `password authentication failed` | В `DATABASE_URL` не подставлен пароль вместо `[YOUR-PASSWORD]` |
 | `no pg_hba.conf entry` / `SSL required` | Не задано `DATABASE_SSL=true` |
+| `SELF_SIGNED_CERT_IN_CHAIN` | Нужен сертификат Supabase: скачайте его в **Settings → Database → SSL Configuration** и вставьте содержимое в `DATABASE_SSL_CA`. Быстрый обходной путь — `DATABASE_SSL_REJECT_UNAUTHORIZED=false` (шифрование сохраняется, проверка подлинности — нет) |
 | Деплой падает на `COOKIE_SECURE` | В production требуется `COOKIE_SECURE=true` |
 | Вход не сохраняется | Нет `TRUST_PROXY=true` либо `COOKIE_SECURE=true` без HTTPS |
 | Лента пуста | Источники не добавлены или не настроен доступ к ним |
