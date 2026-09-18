@@ -99,6 +99,84 @@ describe('Состояние подключения модели', () => {
   });
 });
 
+describe('Экономия запросов к модели', () => {
+  const base = {
+    DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
+    SESSION_SECRET: 'x'.repeat(48),
+    CSRF_SECRET: 'y'.repeat(48),
+  };
+
+  const config = () =>
+    loadConfig({
+      ...base,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'http://127.0.0.1:4798',
+      AI_MODEL: 'test-model',
+    });
+
+  const categories = [{ slug: 'incident', title: 'Происшествия', keywords: ['дтп'], defaultImportance: 'HIGH' as const }];
+
+  /** Провайдер, обращение к которому означало бы потраченный запрос. */
+  const forbidden = {
+    name: 'forbidden',
+    model: 'test-model',
+    isAvailable: () => true,
+    complete: async () => {
+      throw new Error('Обращение к модели не должно было произойти');
+    },
+  };
+
+  const input = {
+    text: 'На улице Видова произошло ДТП с участием двух автомобилей.',
+    sourceTitle: 'ЧП',
+    postedAt: new Date().toISOString(),
+    categories: categories.map((c) => ({ slug: c.slug, title: c.title })),
+  };
+
+  it('с выключенной классификацией запрос к модели не уходит', async () => {
+    const processor = new AiProcessor(config(), categories, undefined, forbidden);
+    processor.setModelForClassification(false);
+
+    const result = await processor.classifyPost(input);
+
+    expect(result.producedBy).toBe('HEURISTIC');
+    expect(result.classification.category).toBeTruthy();
+  });
+
+  it('по умолчанию обращение к модели происходит', async () => {
+    let calls = 0;
+    const counting = {
+      name: 'counting',
+      model: 'test-model',
+      isAvailable: () => true,
+      complete: async () => {
+        calls += 1;
+        return JSON.stringify({
+          category: 'incident',
+          importance: 'HIGH',
+          isNews: true,
+          location: null,
+          headline: 'ДТП на улице Видова',
+          entities: ['Видова'],
+          confidence: 0.8,
+        });
+      },
+    };
+
+    const processor = new AiProcessor(config(), categories, undefined, counting);
+    const result = await processor.classifyPost(input);
+
+    expect(calls).toBe(1);
+    expect(result.producedBy).toBe('AI');
+
+    // А с выключенной настройкой тот же провайдер не вызывается вовсе —
+    // именно в этом экономия, а не в более коротком запросе.
+    processor.setModelForClassification(false);
+    await processor.classifyPost(input);
+    expect(calls).toBe(1);
+  });
+});
+
 describe('Категория из разбора приводится к справочнику', () => {
   const categories = [
     { slug: 'incident', title: 'Происшествия' },

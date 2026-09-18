@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
+  DEFAULT_AI_SETTINGS,
   DEFAULT_EDITORIAL_STYLE,
   DEFAULT_PUBLISHING_SETTINGS,
   EDITORIAL_TONES,
   EDITORIAL_TONE_HINTS,
   EDITORIAL_TONE_LABELS,
+  type AiSettings,
   type EditorialStyle,
   type PublishingSettings,
 } from '@nnm/shared';
@@ -96,6 +98,33 @@ export function SettingsPage() {
         text: next.autoPublish
           ? 'Автопубликация включена. Материалы будут уходить в канал без подтверждения — при уверенности не ниже порога и после паузы.'
           : 'Автопубликация выключена. Каждый материал снова требует подтверждения человеком.',
+      });
+    } catch (error) {
+      setNotice({ tone: 'danger', text: (error as Error).message });
+    }
+  };
+
+  // Расход запросов к модели: на бесплатных тарифах считаются именно запросы.
+  const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
+  const [aiSettingsLoaded, setAiSettingsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (aiSettingsLoaded || !stored) return;
+    const saved = stored.ai as Partial<AiSettings> | undefined;
+    if (saved) setAiSettings({ ...DEFAULT_AI_SETTINGS, ...saved });
+    setAiSettingsLoaded(true);
+  }, [stored, aiSettingsLoaded]);
+
+  const saveAiSettings = async (next: AiSettings) => {
+    setNotice(null);
+    try {
+      await updateSetting.mutateAsync({ key: 'ai', value: next });
+      setAiSettings(next);
+      setNotice({
+        tone: 'success',
+        text: next.useModelForClassification
+          ? 'Классификация снова выполняется моделью. Запросов расходуется примерно вдвое больше.'
+          : 'Классификация переведена на правила. Модель тратится только на черновики — примерно вдвое меньше запросов в сутки.',
       });
     } catch (error) {
       setNotice({ tone: 'danger', text: (error as Error).message });
@@ -275,6 +304,47 @@ export function SettingsPage() {
                       <Alert tone="danger">{(aiCheck.error as Error).message}</Alert>
                     </div>
                   )}
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Расход запросов к модели</div>
+                  <p className="field__hint">
+                    Бесплатные тарифы считают не длину текстов, а число запросов в сутки.
+                    На новость приходится два обращения: классификация публикации и
+                    черновик события. Правила заменяют классификацию грубее, но
+                    переписать текст они не могут вообще — поэтому при нехватке квоты
+                    отключают именно её.
+                  </p>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: 'pointer',
+                      marginTop: 'var(--space-2)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={aiSettings.useModelForClassification}
+                      disabled={updateSetting.isPending}
+                      onChange={(event) =>
+                        void saveAiSettings({
+                          ...aiSettings,
+                          useModelForClassification: event.target.checked,
+                        })
+                      }
+                    />
+                    <span>
+                      Классифицировать публикации моделью
+                      {!aiSettings.useModelForClassification && (
+                        <>
+                          {' '}
+                          <Badge tone="success">экономия ~50% запросов</Badge>
+                        </>
+                      )}
+                    </span>
+                  </label>
                 </div>
 
                 <div className="detail-section">

@@ -9,6 +9,7 @@ import { EventsRepository } from '../../repositories/events.js';
 import { OpsRepository } from '../../repositories/ops.js';
 import { PostsRepository } from '../../repositories/posts.js';
 import type { AiProcessor } from '../ai/processor.js';
+import { loadAiSettings } from '../ai/ai-settings.js';
 import {
   compareForDedup,
   normalizeEntity,
@@ -73,6 +74,13 @@ export class EventBuilder {
 
     // --- классификация ---------------------------------------------------
     const normalized = post.normalizedText ?? normalizeForAnalysis(post.rawText);
+
+    // На бесплатных тарифах считаются запросы в сутки, и классификация —
+    // половина всех обращений. Настройка позволяет отдать её правилам,
+    // сохранив модель там, где правила бессильны, — в переписывании текста.
+    const aiSettings = await loadAiSettings(this.db);
+    this.ai.setModelForClassification(aiSettings.useModelForClassification);
+
     const { classification } = await this.ai.classifyPost({
       text: post.rawText,
       sourceTitle: String(source.title),

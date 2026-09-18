@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  aiSettingsSchema,
   editorialStyleSchema,
   IMPORTANCE_LEVELS,
   publishingSettingsSchema,
@@ -168,6 +169,32 @@ export default async function settingsRoutes(
       if (!check.ok) {
         return reply.code(401).send({ error: 'CONFIRMATION_FAILED', message: 'Пароль указан неверно.' });
       }
+    }
+
+    // Расход запросов к модели: не критично, но схема обязательна.
+    if (params.data.key === 'ai') {
+      const parsed = aiSettingsSchema.safeParse(body.data.value);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'VALIDATION_ERROR',
+          message: parsed.error.issues[0]?.message ?? 'Некорректные настройки модели.',
+        });
+      }
+      await settings.setSetting(params.data.key, parsed.data, {
+        updatedBy: request.user!.id,
+        isCritical: false,
+      });
+
+      await audit.log({
+        userId: request.user!.id,
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entityType: 'settings',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+        details: { key: 'ai', critical: false, ...parsed.data },
+      });
+
+      return { ok: true, key: params.data.key };
     }
 
     // Автопубликация: раздел критичный, пароль уже проверен выше.
