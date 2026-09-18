@@ -23,6 +23,8 @@ export const JOB_TYPES = {
   BUILD_EVENT: 'event.build',
   GENERATE_DRAFT: 'draft.generate',
   PUBLISH: 'publication.publish',
+  /** Автоматическая публикация по правилам из настроек. */
+  AUTO_PUBLISH: 'publication.auto',
   CLEANUP: 'maintenance.cleanup',
 } as const;
 

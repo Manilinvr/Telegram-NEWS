@@ -4,6 +4,7 @@ import type { AppConfig } from '../../config/env.js';
 import type { Database } from '../../db/pool.js';
 import { AiProcessor } from '../../modules/ai/processor.js';
 import { AdapterRegistry } from '../../modules/ingestion/registry.js';
+import { loadPublishingSettings } from '../../modules/publishing/settings.js';
 import { TelegramPublisher } from '../../modules/publishing/telegram-publisher.js';
 import { createTranscriptionProvider } from '../../modules/transcription/provider.js';
 import { JobQueue } from '../../queue/queue.js';
@@ -44,6 +45,7 @@ export default async function diagnosticsRoutes(
     const capabilities = await db.capabilities();
 
     const aiReason = new AiProcessor(config, []).unavailableReason();
+    const { autoPublish } = await loadPublishingSettings(db);
 
     const [jobs, errors, sourceHealth] = await Promise.all([
       queue.counts(),
@@ -87,7 +89,7 @@ export default async function diagnosticsRoutes(
       errors,
       sources: Object.fromEntries(sourceHealth.map((row) => [String(row.health), Number(row.count)])),
       live: { clients: liveBus.clientCount },
-      autoPublishEnabled: config.AUTO_PUBLISH_ENABLED,
+      autoPublishEnabled: autoPublish,
     };
   });
 

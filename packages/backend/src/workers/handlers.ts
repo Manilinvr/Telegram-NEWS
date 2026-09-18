@@ -14,6 +14,7 @@ import { AdapterRegistry } from '../modules/ingestion/registry.js';
 import { IngestionService } from '../modules/ingestion/service.js';
 import { MediaProcessor } from '../modules/media/processor.js';
 import { DraftService } from '../modules/pipeline/draft-service.js';
+import { PublishingService } from '../modules/publishing/service.js';
 import { EventBuilder } from '../modules/pipeline/event-builder.js';
 import { createStorageDriver } from '../modules/storage/driver.js';
 import { TranscriptionService } from '../modules/transcription/service.js';
@@ -156,6 +157,33 @@ export function createHandlers(db: Database, config: AppConfig): {
       const service = new DraftService(db, ai, config, transcription);
       const draft = await service.generateForEvent(eventId);
       return { draftId: draft?.id ?? null, version: draft?.version ?? null };
+    },
+
+    /**
+     * Автоматическая публикация события.
+     *
+     * Задача только напоминает о событии: все условия — включена ли
+     * автопубликация, сохранил ли права включивший её человек, не взял ли
+     * материал в работу модератор, достаточно ли уверенности — проверяются
+     * в PublishingService при выполнении. Пропуск не считается ошибкой:
+     * материал остаётся в очереди и ждёт человека.
+     */
+    [JOB_TYPES.AUTO_PUBLISH]: async (payload) => {
+      const eventId = String(payload.eventId ?? '');
+      const publishing = new PublishingService(db, config, storage);
+      const result = await publishing.publishAutomatically({ eventId });
+
+      if (result.skipped) {
+        log.info({ eventId, reason: result.skipped }, 'Автопубликация пропущена');
+        return { published: false, skipped: result.skipped };
+      }
+      if (!result.ok) {
+        log.warn({ eventId, code: result.code }, 'Автопубликация не удалась');
+        return { published: false, code: result.code, message: result.message };
+      }
+
+      log.info({ eventId, publicationId: result.publication?.id }, 'Материал опубликован автоматически');
+      return { published: true, publicationId: result.publication?.id ?? null };
     },
 
     /** Периодическое обслуживание. */

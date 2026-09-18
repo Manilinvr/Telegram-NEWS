@@ -1,8 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { editorialStyleSchema, IMPORTANCE_LEVELS } from '@nnm/shared';
+import {
+  editorialStyleSchema,
+  IMPORTANCE_LEVELS,
+  publishingSettingsSchema,
+} from '@nnm/shared';
 import type { AppConfig } from '../../config/env.js';
 import { AiProcessor } from '../../modules/ai/processor.js';
+import { loadPublishingSettings } from '../../modules/publishing/settings.js';
 import type { Database } from '../../db/pool.js';
 import { ProfanityGuard } from '../../modules/profanity/index.js';
 import { AUDIT_ACTIONS, AuditRepository } from '../../repositories/audit.js';
@@ -30,6 +35,16 @@ const categorySchema = z.object({
   sortOrder: z.number().int().min(0).max(10_000).optional(),
   isActive: z.boolean().optional(),
 });
+
+/**
+ * Что принимается от интерфейса. `enabledBy` и `enabledAt` сюда не входят:
+ * запись о том, кто включил автопубликацию, ставит сервер по текущей
+ * сессии — иначе ответственность за отправку в канал можно было бы
+ * приписать любому, просто прислав чужой идентификатор.
+ */
+const publishingInputSchema = publishingSettingsSchema
+  .omit({ enabledBy: true, enabledAt: true })
+  .strict();
 
 const profanitySettingsSchema = z.object({
   /** Блокировать ли публикацию при грубой брани. Мат блокируется всегда. */
@@ -111,7 +126,7 @@ export default async function settingsRoutes(
         telegramPublishDryRun: config.TELEGRAM_PUBLISH_DRY_RUN,
         vkConfigured: Boolean(config.VK_ACCESS_TOKEN),
         storageDriver: config.STORAGE_DRIVER,
-        autoPublishEnabled: config.AUTO_PUBLISH_ENABLED,
+        autoPublishEnabled: (await loadPublishingSettings(db)).autoPublish,
         dedup: {
           timeWindowHours: config.DEDUP_TIME_WINDOW_HOURS,
           mergeThreshold: config.DEDUP_MERGE_THRESHOLD,
@@ -153,6 +168,62 @@ export default async function settingsRoutes(
       if (!check.ok) {
         return reply.code(401).send({ error: 'CONFIRMATION_FAILED', message: 'Пароль указан неверно.' });
       }
+    }
+
+    // Автопубликация: раздел критичный, пароль уже проверен выше.
+    // Здесь остаётся записать решение вместе с тем, кто его принял.
+    if (params.data.key === 'publishing') {
+      const parsed = publishingInputSchema.safeParse(body.data.value);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'VALIDATION_ERROR',
+          message: parsed.error.issues[0]?.message ?? 'Некорректные настройки публикации.',
+        });
+      }
+
+      const previous = publishingSettingsSchema.safeParse(
+        await settings.getSetting('publishing', null),
+      );
+      const wasEnabled = previous.success && previous.data.autoPublish;
+
+      const value = {
+        ...parsed.data,
+        // Автор решения переписывается при КАЖДОМ включении: публикации
+        // выполняются от его имени, и это должен быть тот, кто нажал
+        // переключатель сейчас, а не тот, кто включал его год назад.
+        enabledBy: parsed.data.autoPublish
+          ? wasEnabled && previous.success
+            ? (previous.data.enabledBy ?? request.user!.id)
+            : request.user!.id
+          : null,
+        enabledAt: parsed.data.autoPublish
+          ? wasEnabled && previous.success
+            ? (previous.data.enabledAt ?? new Date().toISOString())
+            : new Date().toISOString()
+          : null,
+      };
+
+      await settings.setSetting(params.data.key, value, {
+        updatedBy: request.user!.id,
+        isCritical: true,
+      });
+
+      await audit.log({
+        userId: request.user!.id,
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entityType: 'settings',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+        details: {
+          key: 'publishing',
+          critical: true,
+          autoPublish: value.autoPublish,
+          minConfidence: value.minConfidence,
+          delayMinutes: value.delayMinutes,
+        },
+      });
+
+      return { ok: true, key: params.data.key };
     }
 
     // Редакционный стиль проверяется схемой: в настройку тона нельзя

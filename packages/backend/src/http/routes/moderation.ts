@@ -372,5 +372,7 @@ export default async function moderationRoutes(
   );
 
   /** Состояние публикатора — показывается в настройках и диагностике. */
-  app.get('/publishing/status', { preHandler: app.requireAuth }, async () => publishing.publisherStatus);
+  app.get('/publishing/status', { preHandler: app.requireAuth }, async () =>
+    publishing.publisherStatus(),
+  );
 }

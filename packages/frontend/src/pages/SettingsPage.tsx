@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   DEFAULT_EDITORIAL_STYLE,
+  DEFAULT_PUBLISHING_SETTINGS,
   EDITORIAL_TONES,
   EDITORIAL_TONE_HINTS,
   EDITORIAL_TONE_LABELS,
   type EditorialStyle,
+  type PublishingSettings,
 } from '@nnm/shared';
 import {
   useAiCheck,
@@ -40,7 +42,9 @@ export function SettingsPage() {
   const changePassword = useChangePassword();
   const logout = useLogout();
 
-  const [tab, setTab] = useState<'general' | 'style' | 'profanity' | 'security' | 'audit'>('general');
+  const [tab, setTab] = useState<
+    'general' | 'style' | 'publishing' | 'profanity' | 'security' | 'audit'
+  >('general');
   const [testText, setTestText] = useState('');
 
   // Форма стиля заполняется сохранённым значением, когда настройки
@@ -56,6 +60,47 @@ export function SettingsPage() {
     if (saved) setStyle({ ...DEFAULT_EDITORIAL_STYLE, ...saved });
     setStyleLoaded(true);
   }, [stored, styleLoaded]);
+
+  // Автопубликация: раздел критичный, поэтому сохранение требует пароля.
+  const [publishing, setPublishing] = useState<PublishingSettings>(DEFAULT_PUBLISHING_SETTINGS);
+  const [publishingLoaded, setPublishingLoaded] = useState(false);
+  const [publishPassword, setPublishPassword] = useState('');
+
+  useEffect(() => {
+    if (publishingLoaded || !stored) return;
+    const saved = stored.publishing as Partial<PublishingSettings> | undefined;
+    if (saved) setPublishing({ ...DEFAULT_PUBLISHING_SETTINGS, ...saved });
+    setPublishingLoaded(true);
+  }, [stored, publishingLoaded]);
+
+  const savePublishing = async (next: PublishingSettings) => {
+    setNotice(null);
+    try {
+      await updateSetting.mutateAsync({
+        key: 'publishing',
+        value: {
+          autoPublish: next.autoPublish,
+          minConfidence: next.minConfidence,
+          delayMinutes: next.delayMinutes,
+        },
+        confirmPassword: publishPassword,
+      });
+      setPublishing(next);
+      setPublishPassword('');
+      // Отметку «кто и когда включил» ставит сервер, поэтому состояние
+      // формы пересобирается из обновлённых настроек, а не из того, что
+      // мы отправили.
+      setPublishingLoaded(false);
+      setNotice({
+        tone: 'success',
+        text: next.autoPublish
+          ? 'Автопубликация включена. Материалы будут уходить в канал без подтверждения — при уверенности не ниже порога и после паузы.'
+          : 'Автопубликация выключена. Каждый материал снова требует подтверждения человеком.',
+      });
+    } catch (error) {
+      setNotice({ tone: 'danger', text: (error as Error).message });
+    }
+  };
 
   const saveStyle = async () => {
     setNotice(null);
@@ -119,6 +164,7 @@ export function SettingsPage() {
               [
                 ['general', 'Общие'],
                 ['style', 'Стиль'],
+                ['publishing', 'Публикация'],
                 ['profanity', 'Фильтр лексики'],
                 ['security', 'Безопасность'],
                 ['audit', 'Журнал действий'],
@@ -183,9 +229,11 @@ export function SettingsPage() {
                     </span>
                     <span className="info-grid__key">Автопубликация</span>
                     <span className="info-grid__value">
-                      <Badge tone="muted">
-                        {runtime?.autoPublishEnabled ? 'включена' : 'выключена (требуется подтверждение человека)'}
-                      </Badge>
+                      {runtime?.autoPublishEnabled ? (
+                        <Badge tone="warning">включена — во вкладке «Публикация»</Badge>
+                      ) : (
+                        <Badge tone="muted">выключена (требуется подтверждение человека)</Badge>
+                      )}
                     </span>
                     <span className="info-grid__key">Хранилище медиа</span>
                     <span className="info-grid__value">{String(runtime?.storageDriver ?? '—')}</span>
@@ -364,6 +412,154 @@ export function SettingsPage() {
                       onClick={() => setStyle(DEFAULT_EDITORIAL_STYLE)}
                     >
                       Вернуть значения по умолчанию
+                    </button>
+                  </div>
+                </div>
+              </QueryState>
+            )}
+
+            {tab === 'publishing' && (
+              <QueryState isLoading={settings.isLoading} error={settings.error}>
+                {publishing.autoPublish ? (
+                  <Alert tone="warning" title="Автопубликация включена">
+                    Материалы уходят в канал без подтверждения человеком. Проверка лексики,
+                    обязательные источники и непустой текст остаются в силе — их не
+                    отключает ничто, — но сам факт публикации человек больше не
+                    подтверждает.
+                  </Alert>
+                ) : (
+                  <Alert tone="default" title="Каждый материал подтверждается человеком">
+                    Сейчас ничего не уходит в канал без нажатия «Опубликовать» в модерации.
+                  </Alert>
+                )}
+
+                {runtime?.telegramPublishDryRun && (
+                  <div style={{ marginTop: 'var(--space-3)' }}>
+                    <Alert tone="warning" title="Включён сухой прогон">
+                      При TELEGRAM_PUBLISH_DRY_RUN=true в канал не уходит ничего, даже при
+                      включённой автопубликации: материал проходит весь путь, но отправки
+                      не происходит.
+                    </Alert>
+                  </div>
+                )}
+
+                {!runtime?.telegramPublishConfigured && (
+                  <div style={{ marginTop: 'var(--space-3)' }}>
+                    <Alert tone="danger" title="Бот публикации не настроен">
+                      Не заданы TELEGRAM_PUBLISH_BOT_TOKEN или TELEGRAM_PUBLISH_CHANNEL —
+                      отправка завершится ошибкой. См. docs/SETUP-TELEGRAM.md.
+                    </Alert>
+                  </div>
+                )}
+
+                <div
+                  className="detail-section"
+                  style={{ marginTop: 'var(--space-4)', display: 'grid', gap: 'var(--space-3)', maxWidth: 620 }}
+                >
+                  <div className="info-grid">
+                    <span className="info-grid__key">Состояние</span>
+                    <span className="info-grid__value">
+                      {publishing.autoPublish ? (
+                        <Badge tone="warning">включена</Badge>
+                      ) : (
+                        <Badge tone="success">выключена</Badge>
+                      )}
+                    </span>
+                    <span className="info-grid__key">Канал</span>
+                    <span className="info-grid__value">
+                      {String(runtime?.telegramPublishChannel ?? 'не задан')}
+                    </span>
+                    {publishing.enabledAt && (
+                      <>
+                        <span className="info-grid__key">Включена</span>
+                        <span className="info-grid__value">
+                          {formatDateTime(String(publishing.enabledAt))}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label" htmlFor="auto-confidence">
+                      Публиковать только при уверенности не ниже
+                    </label>
+                    <select
+                      id="auto-confidence"
+                      className="select"
+                      value={publishing.minConfidence}
+                      onChange={(event) =>
+                        setPublishing({ ...publishing, minConfidence: Number(event.target.value) })
+                      }
+                    >
+                      {[0.7, 0.8, 0.85, 0.9, 0.95].map((value) => (
+                        <option key={value} value={value}>
+                          {value.toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="field__hint">
+                      Материалы с меньшей уверенностью уходят к человеку. Именно низкая
+                      уверенность отмечает случаи с противоречиями и пробелами в источниках.
+                    </p>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label" htmlFor="auto-delay">
+                      Пауза перед отправкой
+                    </label>
+                    <select
+                      id="auto-delay"
+                      className="select"
+                      value={publishing.delayMinutes}
+                      onChange={(event) =>
+                        setPublishing({ ...publishing, delayMinutes: Number(event.target.value) })
+                      }
+                    >
+                      {[0, 5, 10, 30, 60, 120].map((value) => (
+                        <option key={value} value={value}>
+                          {value === 0 ? 'без паузы' : `${value} мин`}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="field__hint">
+                      За это время событие успевает дополниться публикациями других каналов,
+                      а вы — вмешаться. Пост, ушедший мгновенно, рискует оказаться неполным.
+                    </p>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label" htmlFor="auto-password">
+                      Пароль для подтверждения
+                    </label>
+                    <input
+                      id="auto-password"
+                      className="input"
+                      type="password"
+                      autoComplete="current-password"
+                      value={publishPassword}
+                      onChange={(event) => setPublishPassword(event.target.value)}
+                      placeholder="Раздел критичный — нужен ваш пароль"
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className={`btn ${publishing.autoPublish ? '' : 'btn--primary'}`}
+                      disabled={!publishPassword || updateSetting.isPending}
+                      onClick={() =>
+                        void savePublishing({ ...publishing, autoPublish: !publishing.autoPublish })
+                      }
+                    >
+                      {publishing.autoPublish ? 'Выключить автопубликацию' : 'Включить автопубликацию'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={!publishPassword || updateSetting.isPending}
+                      onClick={() => void savePublishing(publishing)}
+                    >
+                      Сохранить пороги
                     </button>
                   </div>
                 </div>

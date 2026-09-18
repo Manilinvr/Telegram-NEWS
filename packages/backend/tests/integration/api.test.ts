@@ -401,6 +401,97 @@ describe('Диагностика', () => {
   });
 });
 
+describe('Переключатель автопубликации', () => {
+  it('без пароля не включается', async () => {
+    const { cookie, csrfToken } = await login(app);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: { value: { autoPublish: true, minConfidence: 0.85, delayMinutes: 10 } },
+    });
+
+    // Раздел критичный: включение отправки в канал без человека требует
+    // повторного ввода пароля — сессия могла остаться на чужом устройстве.
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe('CONFIRMATION_REQUIRED');
+  });
+
+  it('с паролем включается и запоминает, кто это сделал', async () => {
+    const { cookie, csrfToken } = await login(app);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: {
+        value: { autoPublish: true, minConfidence: 0.9, delayMinutes: 5 },
+        confirmPassword: TEST_PASSWORD,
+      },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const settings = await app.inject({ method: 'GET', url: '/api/settings', headers: { cookie } });
+    const stored = settings.json().settings.publishing;
+    expect(stored.autoPublish).toBe(true);
+    expect(stored.minConfidence).toBe(0.9);
+    // Автора решения ставит сервер: приписать ответственность другому,
+    // прислав чужой идентификатор, нельзя.
+    expect(typeof stored.enabledBy).toBe('string');
+    expect(stored.enabledAt).toBeTruthy();
+
+    expect(settings.json().runtime.autoPublishEnabled).toBe(true);
+  });
+
+  it('идентификатор включившего нельзя прислать с клиента', async () => {
+    const { cookie, csrfToken } = await login(app);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: {
+        value: {
+          autoPublish: true,
+          minConfidence: 0.85,
+          delayMinutes: 10,
+          enabledBy: '00000000-0000-0000-0000-000000000000',
+        },
+        confirmPassword: TEST_PASSWORD,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('VALIDATION_ERROR');
+  });
+
+  it('выключение стирает запись о включившем', async () => {
+    const { cookie, csrfToken } = await login(app);
+    await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: {
+        value: { autoPublish: true, minConfidence: 0.85, delayMinutes: 10 },
+        confirmPassword: TEST_PASSWORD,
+      },
+    });
+
+    await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: {
+        value: { autoPublish: false, minConfidence: 0.85, delayMinutes: 10 },
+        confirmPassword: TEST_PASSWORD,
+      },
+    });
+
+    const settings = await app.inject({ method: 'GET', url: '/api/settings', headers: { cookie } });
+    const stored = settings.json().settings.publishing;
+    expect(stored.autoPublish).toBe(false);
+    expect(stored.enabledBy).toBeNull();
+  });
+});
+
 describe('Источники', () => {
   it('отклоняет источник с некорректным URL', async () => {
     const { cookie, csrfToken } = await login(app);
