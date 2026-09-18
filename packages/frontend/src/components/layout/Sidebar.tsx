@@ -11,7 +11,7 @@ import {
   IconSettings,
   IconSources,
 } from '../ui/Icons.jsx';
-import { formatTime } from '../../lib/format.js';
+import { formatCount, formatTime } from '../../lib/format.js';
 
 interface NavEntry {
   to: string;
@@ -41,9 +41,48 @@ export function Sidebar({
   open: boolean;
   onNavigate: () => void;
   badges: { moderation: number; errors: number };
-  status: { healthy: boolean; degraded: boolean; updatedAt: string | null };
+  /**
+   * Состояние системы двумя разными величинами, а не одним флагом.
+   *
+   * Различие существенное: остановившийся сбор и записи в журнале ошибок —
+   * разные вещи. Раньше любая запись, в том числе от давно исправленной
+   * причины, красила индикатор красным наравне с отвалившимся источником,
+   * и он переставал что-либо значить.
+   */
+  status: {
+    failingSources: number;
+    unresolvedErrors: number;
+    updatedAt: string | null;
+  };
 }) {
-  const statusModifier = !status.healthy ? 'failing' : status.degraded ? 'degraded' : '';
+  const { failingSources, unresolvedErrors } = status;
+
+  // Красный — сбор реально встал. Жёлтый — работает, но есть на что
+  // посмотреть. Источник перестаёт опрашиваться после пяти неудач подряд,
+  // так что красный не зажигается от одиночного сбоя сети.
+  const statusModifier = failingSources > 0 ? 'failing' : unresolvedErrors > 0 ? 'degraded' : '';
+
+  const statusLabel =
+    failingSources > 0
+      ? 'Сбор остановлен'
+      : unresolvedErrors > 0
+        ? 'Работает с замечаниями'
+        : 'Система работает';
+
+  // Подсказка называет причину числом: «97 неразобранных ошибок» говорит
+  // больше, чем «есть неполадки».
+  const reasons: string[] = [];
+  if (failingSources > 0) {
+    reasons.push(
+      `${formatCount(failingSources, ['источник не отвечает', 'источника не отвечают', 'источников не отвечают'])}`,
+    );
+  }
+  if (unresolvedErrors > 0) {
+    reasons.push(
+      `${formatCount(unresolvedErrors, ['неразобранная ошибка', 'неразобранные ошибки', 'неразобранных ошибок'])}`,
+    );
+  }
+  const statusHint = reasons.length > 0 ? reasons.join(', ') : 'Сбор и обработка идут без сбоев';
 
   return (
     <aside className={`sidebar${open ? ' sidebar--open' : ''}`}>
@@ -96,18 +135,18 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="system-status">
+      <div className="system-status" title={statusHint}>
         <div className="system-status__row">
           <span className={`system-status__dot${statusModifier ? ` system-status__dot--${statusModifier}` : ''}`} />
-          <span>
-            {!status.healthy
-              ? 'Есть неполадки'
-              : status.degraded
-                ? 'Работает с замечаниями'
-                : 'Система работает'}
-          </span>
+          <span>{statusLabel}</span>
         </div>
         <div className="system-status__meta">
+          {reasons.length > 0 && (
+            <>
+              {statusHint}
+              <br />
+            </>
+          )}
           Последнее обновление
           <br />
           {status.updatedAt ? formatTime(status.updatedAt) : '—'}
