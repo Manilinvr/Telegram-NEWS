@@ -14,7 +14,7 @@ export interface NewDraftInput {
   uncertainties: string[];
   sourceClaims: SourceClaim[];
   confidence: number;
-  createdBy: 'AI' | 'HUMAN';
+  createdBy: 'AI' | 'HUMAN' | 'RULES';
   createdByUser?: string | null;
   model?: string | null;
   rawResponse?: unknown;

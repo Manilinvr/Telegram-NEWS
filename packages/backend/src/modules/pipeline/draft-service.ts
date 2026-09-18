@@ -20,6 +20,17 @@ import { buildTelegramPost } from './telegram-format.js';
 const log = childLogger({ module: 'draft-service' });
 
 /**
+ * Текст записи о недоступности модели.
+ *
+ * Постоянный, а не собранный из ответа службы: по нему ищется предыдущая
+ * запись, чтобы не повторять её на каждой публикации, и по нему же
+ * обслуживание понимает, что модель недавно не отвечала. Подробности
+ * (лимит, баланс, ключ) уходят в details.
+ */
+export const MODEL_UNAVAILABLE_ERROR =
+  'Модель недоступна — новости разбираются по правилам, без переписывания текста';
+
+/**
  * Формирование редакционного черновика события (ТЗ §8, §11, §13).
  *
  * Черновик всегда проходит проверку лексики и всегда попадает в очередь
@@ -152,7 +163,7 @@ export class DraftService {
         };
       }),
       confidence: analysis.confidence,
-      createdBy: outcome.producedBy === 'AI' ? 'AI' : 'HUMAN',
+      createdBy: outcome.producedBy === 'AI' ? 'AI' : 'RULES',
       model: outcome.model,
       rawResponse: outcome.raw,
       profanityReport: finalReport,
@@ -195,6 +206,23 @@ export class DraftService {
       status: finalReport.allowed ? 'PENDING' : 'BLOCKED',
       blockedReason: finalReport.allowed ? null : finalReport.reason,
     });
+
+    // Недоступность модели видна на экране, а не только в логе воркера.
+    // Раньше исчерпанный лимит или кончившийся баланс проявлялись лишь
+    // тем, что новости переставали переписываться, — заметить это можно
+    // было только по качеству текстов.
+    if (outcome.producedBy === 'HEURISTIC' && this.ai.isAiAvailable()) {
+      await this.ops.recordErrorOnce(
+        {
+          stage: PIPELINE_STAGE.AI_DRAFT,
+          entityType: 'event',
+          entityId: eventId,
+          message: MODEL_UNAVAILABLE_ERROR,
+          details: { reason: outcome.warnings.join(' ') || 'Причина не указана' },
+        },
+        60,
+      );
+    }
 
     // Автопубликация ставится отдельной задачей с паузой, а не
     // выполняется здесь же: событие ещё дополняется публикациями других

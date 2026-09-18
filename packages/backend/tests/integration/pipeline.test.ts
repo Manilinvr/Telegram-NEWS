@@ -18,6 +18,10 @@ import { DraftsRepository } from '../../src/repositories/drafts.js';
 import { EventsRepository } from '../../src/repositories/events.js';
 import { ModerationRepository } from '../../src/repositories/moderation.js';
 import { OpsRepository } from '../../src/repositories/ops.js';
+import { createHandlers } from '../../src/workers/handlers.js';
+import { JOB_TYPES } from '../../src/queue/queue.js';
+import { AiUnavailableError, type AiProvider } from '../../src/modules/ai/provider.js';
+import { MODEL_UNAVAILABLE_ERROR } from '../../src/modules/pipeline/draft-service.js';
 import { SourcesRepository } from '../../src/repositories/sources.js';
 import { UsersRepository } from '../../src/repositories/users.js';
 import { hashPassword } from '../../src/lib/crypto.js';
@@ -298,6 +302,132 @@ describe('Черновик и обязательная проверка лекс
     // ...при этом исходная публикация сохранена без изменений.
     const post = await db.one('SELECT raw_text FROM source_posts LIMIT 1');
     expect(String(post.raw_text)).toContain(mat);
+  });
+});
+
+describe('Работа без модели', () => {
+  /** Провайдер, который настроен, но всегда отказывает — как при исчерпанном лимите. */
+  const brokenProvider: AiProvider = {
+    name: 'broken',
+    model: 'test-model',
+    isAvailable: () => true,
+    complete: async () => {
+      throw new AiUnavailableError('Исчерпан лимит запросов к службе модели (50 в сутки).');
+    },
+  };
+
+  async function prepareEvent(id: string): Promise<string> {
+    adapter.setPosts([
+      makePost({
+        id,
+        text: 'В Новороссийске на улице Советов упало дерево, движение затруднено.',
+      }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+    return eventId!;
+  }
+
+  it('черновик, собранный правилами, не выдаётся за написанный человеком', async () => {
+    const eventId = await prepareEvent('6001');
+    await draftService.generateForEvent(eventId);
+
+    const draft = await drafts().findCurrent(eventId);
+
+    // Раньше здесь стояло HUMAN, и такой черновик было не отличить от
+    // правки редактора — а значит, нельзя было безопасно пересобрать.
+    expect(draft?.createdBy).toBe('RULES');
+    expect(draft?.model).toBeNull();
+  });
+
+  it('недоступность модели попадает в журнал ошибок, но не по записи на публикацию', async () => {
+    const categories = await new CategoriesRepository(db).list();
+    const failing = new AiProcessor(
+      config,
+      categories.map((c) => ({
+        slug: c.slug,
+        title: c.title,
+        keywords: c.keywords,
+        defaultImportance: c.defaultImportance,
+      })),
+      undefined,
+      brokenProvider,
+    );
+    const storage = createStorageDriver(config);
+    const service = new DraftService(
+      db,
+      failing,
+      config,
+      new TranscriptionService(db, storage, config),
+    );
+
+    const first = await prepareEvent('6002');
+    await service.generateForEvent(first);
+    const second = await prepareEvent('6003');
+    await service.generateForEvent(second);
+
+    const errors = await new OpsRepository(db).listErrors({ unresolvedOnly: true, limit: 50 });
+    const modelErrors = errors.filter((error) => error.message === MODEL_UNAVAILABLE_ERROR);
+
+    // Сбой повторяется на каждой публикации, но запись нужна одна:
+    // сотня одинаковых строк скрыла бы все остальные ошибки.
+    expect(modelErrors).toHaveLength(1);
+    expect(String(modelErrors[0]?.details.reason)).toMatch(/модел/i);
+
+    // Материал при этом не потерян — черновик собран правилами.
+    expect((await drafts().findCurrent(first))?.createdBy).toBe('RULES');
+  });
+
+  it('обслуживание возвращает модели материалы, разобранные правилами', async () => {
+    const eventId = await prepareEvent('6004');
+    await draftService.generateForEvent(eventId);
+    expect((await drafts().findCurrent(eventId))?.createdBy).toBe('RULES');
+
+    // Конфигурация с подключённой службой: обслуживание должно увидеть,
+    // что модель снова есть, и вернуть материал в работу.
+    const withModel = loadConfig({
+      ...process.env,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'http://127.0.0.1:4799/v1',
+      AI_MODEL: 'test-model',
+      TRANSCRIPTION_PROVIDER: 'mock',
+    });
+    const { handlers } = createHandlers(db, withModel);
+    const result = (await handlers[JOB_TYPES.CLEANUP]!({})) as { redrafted: number };
+
+    expect(result.redrafted).toBe(1);
+
+    const job = await db.maybeOne(
+      `SELECT payload FROM processing_jobs
+        WHERE type = $1 AND status = 'QUEUED'
+        ORDER BY created_at DESC LIMIT 1`,
+      [JOB_TYPES.GENERATE_DRAFT],
+    );
+    expect(String((job?.payload as { eventId?: string })?.eventId)).toBe(eventId);
+  });
+
+  it('пока модель не отвечает, обслуживание не дёргает её впустую', async () => {
+    const eventId = await prepareEvent('6005');
+    await draftService.generateForEvent(eventId);
+
+    // Недоступность записана только что — попытка откладывается.
+    await new OpsRepository(db).recordError({
+      stage: 'AI_DRAFT',
+      entityType: 'event',
+      entityId: eventId,
+      message: MODEL_UNAVAILABLE_ERROR,
+    });
+
+    const withModel = loadConfig({
+      ...process.env,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'http://127.0.0.1:4799/v1',
+      AI_MODEL: 'test-model',
+      TRANSCRIPTION_PROVIDER: 'mock',
+    });
+    const { handlers } = createHandlers(db, withModel);
+    const result = (await handlers[JOB_TYPES.CLEANUP]!({})) as { redrafted: number };
+
+    expect(result.redrafted).toBe(0);
   });
 });
 

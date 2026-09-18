@@ -60,6 +60,50 @@ export class OpsRepository {
    * Записи не удаляются, а помечаются разобранными: журнал ошибок — это
    * доказательство того, что происходило, и терять его нельзя.
    */
+  /**
+   * Записать ошибку не чаще одного раза в заданное окно.
+   *
+   * Нужно для сбоев, которые повторяются на каждой публикации: если
+   * модель недоступна, сотня одинаковых записей за час не добавляет
+   * знания, а скрывает все остальные ошибки. Одна запись с указанием
+   * причины говорит ровно то же самое.
+   */
+  async recordErrorOnce(
+    input: {
+      stage: PipelineStage;
+      entityType: string;
+      entityId?: string | null;
+      message: string;
+      details?: Record<string, unknown>;
+    },
+    withinMinutes: number,
+  ): Promise<boolean> {
+    const existing = await this.db.maybeOne(
+      `SELECT id FROM processing_errors
+        WHERE message = $1
+          AND NOT is_resolved
+          AND created_at > now() - ($2::int * interval '1 minute')
+        LIMIT 1`,
+      [input.message.slice(0, 4000), withinMinutes],
+    );
+    if (existing) return false;
+
+    await this.recordError(input);
+    return true;
+  }
+
+  /** Когда в последний раз записывалась ошибка с таким текстом. */
+  async lastErrorAt(message: string): Promise<Date | null> {
+    const row = await this.db.maybeOne(
+      `SELECT created_at FROM processing_errors
+        WHERE message = $1
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [message.slice(0, 4000)],
+    );
+    return row ? new Date(String(row.created_at)) : null;
+  }
+
   async resolveAllErrors(filter: { stage?: string; message?: string } = {}): Promise<number> {
     const result = await this.db.query(
       `UPDATE processing_errors
