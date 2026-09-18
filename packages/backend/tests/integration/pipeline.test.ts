@@ -21,7 +21,10 @@ import { OpsRepository } from '../../src/repositories/ops.js';
 import { createHandlers } from '../../src/workers/handlers.js';
 import { JOB_TYPES } from '../../src/queue/queue.js';
 import { AiUnavailableError, type AiProvider } from '../../src/modules/ai/provider.js';
-import { MODEL_UNAVAILABLE_ERROR } from '../../src/modules/pipeline/draft-service.js';
+import {
+  MODEL_SCHEMA_ERROR,
+  MODEL_UNAVAILABLE_ERROR,
+} from '../../src/modules/pipeline/draft-service.js';
 import { SourcesRepository } from '../../src/repositories/sources.js';
 import { UsersRepository } from '../../src/repositories/users.js';
 import { hashPassword } from '../../src/lib/crypto.js';
@@ -339,6 +342,48 @@ describe('Работа без модели', () => {
     expect(draft?.model).toBeNull();
   });
 
+  it('в журнале различаются «не ответила» и «ответила не по формату»', async () => {
+    const categories = await new CategoriesRepository(db).list();
+    // Служба отвечает, но текстом, который не разбирается как нужный JSON.
+    const wrongFormat: AiProvider = {
+      name: 'wrong-format',
+      model: 'test-model',
+      isAvailable: () => true,
+      complete: async () => 'Конечно! Вот новость: во дворе упало дерево.',
+    };
+
+    const storage = createStorageDriver(config);
+    const service = new DraftService(
+      db,
+      new AiProcessor(
+        config,
+        categories.map((c) => ({
+          slug: c.slug,
+          title: c.title,
+          keywords: c.keywords,
+          defaultImportance: c.defaultImportance,
+        })),
+        undefined,
+        wrongFormat,
+      ),
+      config,
+      new TranscriptionService(db, storage, config),
+    );
+
+    const eventId = await prepareEvent('6006');
+    await service.generateForEvent(eventId);
+
+    const errors = await new OpsRepository(db).listErrors({ unresolvedOnly: true, limit: 50 });
+    const schemaError = errors.find((error) => error.message === MODEL_SCHEMA_ERROR);
+
+    // Разные неполадки лечатся по-разному: ключ и лимит здесь ни при чём,
+    // помогает более способная модель.
+    expect(schemaError).toBeDefined();
+    expect(errors.some((error) => error.message === MODEL_UNAVAILABLE_ERROR)).toBe(false);
+    expect(String(schemaError?.details.kind)).toBe('schema');
+    expect(String(schemaError?.details.reason)).toMatch(/JSON|схем/i);
+  });
+
   it('недоступность модели попадает в журнал ошибок, но не по записи на публикацию', async () => {
     const categories = await new CategoriesRepository(db).list();
     const failing = new AiProcessor(
@@ -371,7 +416,8 @@ describe('Работа без модели', () => {
     // Сбой повторяется на каждой публикации, но запись нужна одна:
     // сотня одинаковых строк скрыла бы все остальные ошибки.
     expect(modelErrors).toHaveLength(1);
-    expect(String(modelErrors[0]?.details.reason)).toMatch(/модел/i);
+    expect(String(modelErrors[0]?.details.reason)).toMatch(/лимит/i);
+    expect(String(modelErrors[0]?.details.kind)).toBe('unavailable');
 
     // Материал при этом не потерян — черновик собран правилами.
     expect((await drafts().findCurrent(first))?.createdBy).toBe('RULES');

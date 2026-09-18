@@ -31,6 +31,16 @@ export const MODEL_UNAVAILABLE_ERROR =
   'Модель недоступна — новости разбираются по правилам, без переписывания текста';
 
 /**
+ * Модель отвечает, но не тем: ответ не проходит проверку структуры.
+ *
+ * Отдельная запись, потому что и причина, и действие другие: ключ, адрес
+ * и лимит здесь ни при чём, а помогает более способная модель или
+ * упрощение задачи.
+ */
+export const MODEL_SCHEMA_ERROR =
+  'Модель отвечает, но не по формату — новости разбираются по правилам';
+
+/**
  * Формирование редакционного черновика события (ТЗ §8, §11, §13).
  *
  * Черновик всегда проходит проверку лексики и всегда попадает в очередь
@@ -212,13 +222,22 @@ export class DraftService {
     // тем, что новости переставали переписываться, — заметить это можно
     // было только по качеству текстов.
     if (outcome.producedBy === 'HEURISTIC' && this.ai.isAiAvailable()) {
+      // Сообщение различает два разных случая: служба не ответила или
+      // ответила не тем. Лечатся они по-разному — первое ключом, лимитом
+      // и адресом, второе сменой модели на более способную.
+      const message =
+        outcome.failure?.kind === 'schema' ? MODEL_SCHEMA_ERROR : MODEL_UNAVAILABLE_ERROR;
+
       await this.ops.recordErrorOnce(
         {
           stage: PIPELINE_STAGE.AI_DRAFT,
           entityType: 'event',
           entityId: eventId,
-          message: MODEL_UNAVAILABLE_ERROR,
-          details: { reason: outcome.warnings.join(' ') || 'Причина не указана' },
+          message,
+          details: {
+            reason: outcome.failure?.reason ?? outcome.warnings.join(' ') ?? 'Причина не указана',
+            kind: outcome.failure?.kind ?? 'unknown',
+          },
         },
         60,
       );

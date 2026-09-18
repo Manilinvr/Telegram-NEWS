@@ -22,18 +22,38 @@ export function AnalyticsPage() {
   // разных причин там было две-три.
   const errorGroups = Object.values(
     (errors.data ?? []).reduce<
-      Record<string, { key: string; stage: string; message: string; count: number; lastAt: string }>
+      Record<
+        string,
+        {
+          key: string;
+          stage: string;
+          message: string;
+          reason: string | null;
+          count: number;
+          lastAt: string;
+        }
+      >
     >((acc, error) => {
       const key = `${error.stage}|${error.message}`;
+      // Подробность сбоя — то, ради чего в журнал и смотрят: «модель не
+      // ответила» без ответа службы не подсказывает, что делать.
+      const reason =
+        typeof error.details?.reason === 'string' && error.details.reason.trim().length > 0
+          ? error.details.reason
+          : null;
       const existing = acc[key];
       if (existing) {
         existing.count += 1;
-        if (error.createdAt > existing.lastAt) existing.lastAt = error.createdAt;
+        if (error.createdAt > existing.lastAt) {
+          existing.lastAt = error.createdAt;
+          if (reason) existing.reason = reason;
+        }
       } else {
         acc[key] = {
           key,
           stage: error.stage,
           message: error.message,
+          reason,
           count: 1,
           lastAt: error.createdAt,
         };
@@ -165,10 +185,23 @@ export function AnalyticsPage() {
             >
               <div className="list" style={{ paddingBottom: 'var(--space-3)' }}>
                 {errorGroups.slice(0, 12).map((group) => (
-                  <div key={group.key} className="list-row" style={{ cursor: 'default' }}>
+                  <div
+                    key={group.key}
+                    className="list-row"
+                    style={{ cursor: 'default' }}
+                    title={group.reason ? `${group.message}\n\n${group.reason}` : group.message}
+                  >
                     <Badge tone="danger">{group.stage}</Badge>
                     <span className="list-row__body">
                       <span className="list-row__title">{group.message}</span>
+                      {group.reason && (
+                        <span
+                          className="list-row__meta"
+                          style={{ color: 'var(--text-secondary)', whiteSpace: 'normal' }}
+                        >
+                          {group.reason}
+                        </span>
+                      )}
                       <span className="list-row__meta">
                         {group.count > 1 ? `${group.count} раз · последний ` : ''}
                         {formatDateTime(group.lastAt)}
