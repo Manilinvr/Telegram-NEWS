@@ -67,11 +67,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
     const raw = await response.text();
     if (!response.ok) {
-      // Текст ответа службы полезнее кода: там обычно написано,
-      // исчерпан ли бесплатный лимит или не найдена модель.
-      throw new AiUnavailableError(
-        `Служба модели вернула HTTP ${response.status}: ${raw.slice(0, 300)}`,
-      );
+      throw new AiUnavailableError(explainFailure(response, raw));
     }
 
     let body: { choices?: Array<{ message?: { content?: string } }> };
@@ -89,4 +85,83 @@ export class OpenAiCompatibleProvider implements AiProvider {
     log.debug({ model: this.model, ms: Date.now() - started }, 'Ответ модели получен');
     return text;
   }
+}
+
+/**
+ * Объяснить отказ службы словами.
+ *
+ * Сырой JSON ответа обрезался по длине и попадал в интерфейс оборванным
+ * на середине служебного поля. Между тем отказов, которые случаются на
+ * практике, всего несколько, и у каждого есть понятная причина и понятное
+ * действие. Остальные отдаются как есть: придумывать объяснение тому,
+ * чего не знаешь, хуже, чем показать ответ службы.
+ */
+function explainFailure(response: Response, raw: string): string {
+  const message = extractMessage(raw);
+
+  if (response.status === 429) {
+    const reset = formatReset(response.headers.get('x-ratelimit-reset'));
+    const limit = response.headers.get('x-ratelimit-limit');
+    return (
+      'Исчерпан лимит запросов к службе модели' +
+      (limit ? ` (${limit} в сутки)` : '') +
+      '. ' +
+      (reset ? `Лимит обновится ${reset}. ` : '') +
+      'До этого разбор идёт по правилам. ' +
+      (message ? `Ответ службы: ${message}` : '')
+    ).trim();
+  }
+
+  if (response.status === 402) {
+    return `Недостаточно средств на счёте службы модели. ${message || 'Пополните баланс.'}`;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return `Служба модели не приняла ключ (HTTP ${response.status}). Проверьте AI_API_KEY. ${message}`.trim();
+  }
+
+  if (response.status === 404) {
+    return (
+      `Служба модели не нашла модель или адрес (HTTP 404). ` +
+      `Проверьте AI_MODEL и AI_BASE_URL — адрес указывается до /chat/completions. ${message}`
+    ).trim();
+  }
+
+  return `Служба модели вернула HTTP ${response.status}: ${message || raw.slice(0, 300)}`;
+}
+
+/** Достать человеческую часть из ответа об ошибке. */
+function extractMessage(raw: string): string {
+  try {
+    const body = JSON.parse(raw) as { error?: { message?: string } | string; message?: string };
+    const error = body.error;
+    const text =
+      typeof error === 'string' ? error : (error?.message ?? body.message ?? '');
+    return String(text).slice(0, 200);
+  } catch {
+    return raw.slice(0, 200);
+  }
+}
+
+/**
+ * Момент обновления лимита. Службы присылают его то секундами, то
+ * миллисекундами, то количеством секунд ожидания — разбираем все три.
+ */
+function formatReset(value: string | null): string | null {
+  if (!value) return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+
+  const now = Date.now();
+  const timestamp =
+    number > 1e12 ? number : number > 1e9 ? number * 1000 : now + number * 1000;
+  if (timestamp < now) return null;
+
+  return new Date(timestamp).toLocaleString('ru-RU', {
+    timeZone: 'Europe/Moscow',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

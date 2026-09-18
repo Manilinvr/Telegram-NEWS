@@ -226,7 +226,12 @@ export interface AiDraft {
   profanityPassed: boolean;
   profanityReport: ProfanityReport | null;
   /** Кем создан черновик: AI или ручная правка модератора. */
-  createdBy: 'AI' | 'HUMAN';
+  /**
+   * Чем сделан черновик: моделью, набором правил (модель была
+   * недоступна) или человеком. Правила и человек различаются намеренно:
+   * первое имеет смысл пересобрать моделью, второе — неприкосновенно.
+   */
+  createdBy: 'AI' | 'HUMAN' | 'RULES';
   model: string | null;
   isCurrent: boolean;
   createdAt: IsoDateTime;

@@ -234,8 +234,10 @@ describe('Бесплатный разбор новостей через служ
           AI_MODEL: 'free-model',
         }),
       );
+      // Код ответа сам по себе ничего не говорит владельцу установки,
+      // поэтому проверяется объяснение: что исчерпано и что теперь будет.
       await expect(provider.complete({ system: 's', user: 'u' })).rejects.toThrow(
-        /429.*Rate limit exceeded/s,
+        /Исчерпан лимит запросов.*разбор идёт по правилам/s,
       );
     } finally {
       server.close();

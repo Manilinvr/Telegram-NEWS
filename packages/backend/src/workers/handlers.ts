@@ -13,7 +13,7 @@ import { createEmbeddingProvider } from '../modules/dedup/embeddings.js';
 import { AdapterRegistry } from '../modules/ingestion/registry.js';
 import { IngestionService } from '../modules/ingestion/service.js';
 import { MediaProcessor } from '../modules/media/processor.js';
-import { DraftService } from '../modules/pipeline/draft-service.js';
+import { DraftService, MODEL_UNAVAILABLE_ERROR } from '../modules/pipeline/draft-service.js';
 import { PublishingService } from '../modules/publishing/service.js';
 import { EventBuilder } from '../modules/pipeline/event-builder.js';
 import { createStorageDriver } from '../modules/storage/driver.js';
@@ -89,6 +89,59 @@ export function createHandlers(db: Database, config: AppConfig): {
         defaultImportance: c.defaultImportance,
       })),
     );
+
+  /**
+   * Вернуть к модели материалы, разобранные правилами.
+   *
+   * Когда модель недоступна — исчерпан дневной лимит, кончился баланс —
+   * новости не теряются, но и не переписываются: черновик собирается
+   * правилами и остаётся таким навсегда, хотя лимит обнуляется уже через
+   * несколько часов. Здесь такие материалы возвращаются в работу.
+   *
+   * Отбирается только то, что ещё ждёт модератора: опубликованное,
+   * отклонённое и взятое в работу не трогается, а ручная правка не
+   * трогается тем более — черновики человека отличаются от собранных
+   * правилами пометкой created_by.
+   *
+   * Отдельной проверки связи не делается: она сама расходовала бы лимит
+   * (обслуживание идёт каждые 15 минут — 96 запросов в сутки, больше
+   * бесплатной квоты целиком). Вместо этого используется отсрочка: если
+   * недоступность записана меньше получаса назад, попытка откладывается.
+   */
+  async function requeueRulesDrafts(): Promise<number> {
+    const ai = new AiProcessor(config, []);
+    if (!ai.isAiAvailable()) return 0;
+
+    const lastFailure = await ops.lastErrorAt(MODEL_UNAVAILABLE_ERROR);
+    if (lastFailure && Date.now() - lastFailure.getTime() < 30 * 60_000) return 0;
+
+    const rows = await db.many(
+      `SELECT d.event_id
+         FROM ai_drafts d
+         JOIN moderation_queue m ON m.event_id = d.event_id
+        WHERE d.is_current
+          AND d.created_by = 'RULES'
+          AND m.status = 'PENDING'
+          AND d.created_at > now() - interval '48 hours'
+        ORDER BY d.created_at DESC
+        LIMIT 5`,
+    );
+
+    for (const row of rows) {
+      await queue.enqueue({
+        type: JOB_TYPES.GENERATE_DRAFT,
+        stage: PIPELINE_STAGE.AI_DRAFT,
+        payload: { eventId: String(row.event_id) },
+        dedupeKey: `draft:${String(row.event_id)}`,
+        priority: 700,
+      });
+    }
+
+    if (rows.length > 0) {
+      log.info({ count: rows.length }, 'Черновики, собранные правилами, возвращены модели');
+    }
+    return rows.length;
+  }
 
   const handlers: Record<string, JobHandler> = {
     /** Опрос одного источника. */
@@ -190,16 +243,17 @@ export function createHandlers(db: Database, config: AppConfig): {
     [JOB_TYPES.CLEANUP]: async () => {
       const sessionsRepo = new SessionsRepository(db);
       const moderationRepo = new ModerationRepository(db);
-      const [sessions, jobs, stale, expired] = await Promise.all([
+      const [sessions, jobs, stale, expired, redrafted] = await Promise.all([
         sessionsRepo.cleanup(),
         queue.purgeCompleted(7),
         queue.recoverStale(15),
         // Вчерашние нерассмотренные материалы уходят в «Отклонённые»,
         // чтобы очередь начинала день пустой.
         moderationRepo.expireStale(),
+        requeueRulesDrafts(),
       ]);
-      log.info({ sessions, jobs, stale, expired }, 'Обслуживание выполнено');
-      return { sessions, jobs, stale, expired };
+      log.info({ sessions, jobs, stale, expired, redrafted }, 'Обслуживание выполнено');
+      return { sessions, jobs, stale, expired, redrafted };
     },
   };
 
