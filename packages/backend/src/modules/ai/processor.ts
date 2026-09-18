@@ -75,6 +75,15 @@ export class AiProcessor {
   private readonly heuristic: HeuristicAnalyzer;
   private readonly profanity: ProfanityGuard;
   private style: EditorialStyle = DEFAULT_EDITORIAL_STYLE;
+  /**
+   * Тратить ли запрос на классификацию публикации.
+   *
+   * Выключается ради бесплатных тарифов, где считаются запросы в сутки:
+   * классификация — половина всех обращений, и правила её выполняют,
+   * пусть и грубее. Переписывание текста правилами не заменяется ничем,
+   * поэтому черновики этот флаг не затрагивает.
+   */
+  private modelForClassification = true;
 
   constructor(
     private readonly config: AppConfig,
@@ -97,6 +106,11 @@ export class AiProcessor {
    */
   setStyle(style: EditorialStyle): this {
     this.style = style;
+    return this;
+  }
+
+  setModelForClassification(enabled: boolean): this {
+    this.modelForClassification = enabled;
     return this;
   }
 
@@ -184,7 +198,7 @@ export class AiProcessor {
     postedAt: string;
     categories: Array<{ slug: string; title: string }>;
   }): Promise<{ classification: AiPostClassification; producedBy: 'AI' | 'HEURISTIC' }> {
-    if (!this.provider?.isAvailable()) {
+    if (!this.modelForClassification || !this.provider?.isAvailable()) {
       return { classification: this.heuristic.classifyPost(input), producedBy: 'HEURISTIC' };
     }
 

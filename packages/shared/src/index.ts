@@ -11,6 +11,7 @@ export * from './domain/categories.js';
 export * from './domain/types.js';
 export * from './domain/views.js';
 export * from './schemas/ai.js';
+export * from './schemas/ai-usage.js';
 export * from './schemas/editorial.js';
 export * from './schemas/publishing.js';
 export * from './schemas/filters.js';

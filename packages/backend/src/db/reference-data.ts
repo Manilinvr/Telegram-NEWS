@@ -15,6 +15,8 @@
  * трогаются: правки, сделанные в настройках, сохраняются.
  */
 import {
+  AI_SETTING_KEY,
+  DEFAULT_AI_SETTINGS,
   DEFAULT_EDITORIAL_STYLE,
   DEFAULT_PUBLISHING_SETTINGS,
   EDITORIAL_SETTING_KEY,
@@ -61,6 +63,7 @@ export async function ensureReferenceData(
     // Редакционный стиль: без записи интерфейс показывал бы пустую форму,
     // хотя разбор уже идёт со значениями по умолчанию.
     [EDITORIAL_SETTING_KEY, DEFAULT_EDITORIAL_STYLE, false],
+    [AI_SETTING_KEY, DEFAULT_AI_SETTINGS, false],
   ];
 
   for (const [key, value, critical] of defaults) {
