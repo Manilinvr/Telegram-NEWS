@@ -17,6 +17,7 @@ import { CategoriesRepository } from '../../src/repositories/categories.js';
 import { DraftsRepository } from '../../src/repositories/drafts.js';
 import { EventsRepository } from '../../src/repositories/events.js';
 import { ModerationRepository } from '../../src/repositories/moderation.js';
+import { OpsRepository } from '../../src/repositories/ops.js';
 import { SourcesRepository } from '../../src/repositories/sources.js';
 import { UsersRepository } from '../../src/repositories/users.js';
 import { hashPassword } from '../../src/lib/crypto.js';
@@ -297,6 +298,141 @@ describe('Черновик и обязательная проверка лекс
     // ...при этом исходная публикация сохранена без изменений.
     const post = await db.one('SELECT raw_text FROM source_posts LIMIT 1');
     expect(String(post.raw_text)).toContain(mat);
+  });
+});
+
+describe('Автопубликация', () => {
+  const ctx = { ipAddress: '127.0.0.1', userAgent: 'vitest' };
+
+  /** Записать настройку публикации напрямую — как это делает раздел настроек. */
+  async function setAutoPublish(value: {
+    autoPublish: boolean;
+    minConfidence?: number;
+    delayMinutes?: number;
+    enabledBy?: string | null;
+  }): Promise<void> {
+    await new OpsRepository(db).setSetting(
+      'publishing',
+      {
+        autoPublish: value.autoPublish,
+        minConfidence: value.minConfidence ?? 0.3,
+        delayMinutes: value.delayMinutes ?? 0,
+        enabledBy: value.enabledBy === undefined ? owner.id : value.enabledBy,
+        enabledAt: new Date().toISOString(),
+      },
+      { isCritical: true },
+    );
+  }
+
+  async function prepareEvent(): Promise<string> {
+    adapter.setPosts([
+      makePost({
+        id: '5001',
+        text: 'В Новороссийске на улице Анапское шоссе временно перекрыто движение из-за ремонта теплотрассы.',
+      }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+    await draftService.generateForEvent(eventId!);
+    return eventId!;
+  }
+
+  it('выключенная автопубликация ничего не отправляет', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: false });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/выключена/i);
+
+    const queue = await new ModerationRepository(db).findByEvent(eventId);
+    expect(queue?.status).toBe('PENDING');
+  });
+
+  it('включённая автопубликация отправляет материал и помечает событие опубликованным', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(true);
+    // Публикация записана на человека, включившего автопубликацию:
+    // решение принял он, и в журнале это должно быть видно.
+    expect(result.publication?.publishedBy).toBe(owner.id);
+    expect(result.publication?.dryRun).toBe(true);
+
+    const event = await events().findById(eventId);
+    expect(event?.status).toBe('PUBLISHED');
+  });
+
+  it('материал с уверенностью ниже порога уходит к человеку', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true, minConfidence: 0.99 });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/ниже порога/i);
+
+    const queue = await new ModerationRepository(db).findByEvent(eventId);
+    expect(queue?.status).toBe('PENDING');
+  });
+
+  it('материал, который уже взял человек, автоматика не трогает', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true });
+    await new ModerationRepository(db).setStatus(eventId, 'REJECTED', {
+      reviewedBy: owner.id,
+      rejectionReason: 'Не городская новость',
+    });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/REJECTED/);
+  });
+
+  it('заблокированный лексикой материал не публикуется автоматически', async () => {
+    const eventId = await prepareEvent();
+    const mat = ['х', 'у', 'й'].join('');
+    await draftService.saveManualEdit({
+      eventId,
+      userId: owner.id,
+      title: 'Заголовок новости',
+      body: 'Текст новости',
+      telegramText: `Заголовок новости\n\nПолный ${mat} текст.`,
+    });
+    await setAutoPublish({ autoPublish: true });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.publication).toBeUndefined();
+  });
+
+  it('отзыв прав у включившего останавливает отправку', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true });
+    // Учётную запись отключили, а переключатель остался включённым.
+    await new UsersRepository(db).setActive(owner.id, false);
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/недоступна/i);
+
+    const queue = await new ModerationRepository(db).findByEvent(eventId);
+    expect(queue?.status).toBe('PENDING');
+  });
+
+  it('без записи о том, кто включил, отправки нет', async () => {
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true, enabledBy: null });
+
+    const result = await publishing.publishAutomatically({ eventId });
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/кто включил/i);
   });
 });
 

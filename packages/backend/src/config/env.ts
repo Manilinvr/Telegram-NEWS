@@ -224,7 +224,6 @@ const envSchema = z
     DEDUP_MERGE_THRESHOLD: num(0.78),
     DEDUP_REVIEW_THRESHOLD: num(0.62),
 
-    AUTO_PUBLISH_ENABLED: bool(false),
 
     BACKUP_DIR: z.string().default('./backups'),
     BACKUP_RETENTION_DAYS: int(14),

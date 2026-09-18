@@ -1,4 +1,10 @@
-import { PIPELINE_STAGE, TELEGRAM_TEXT_LIMIT, type Publication, type User } from '@nnm/shared';
+import {
+  PIPELINE_STAGE,
+  TELEGRAM_TEXT_LIMIT,
+  type Publication,
+  type PublishingSettings,
+  type User,
+} from '@nnm/shared';
 import type { AppConfig } from '../../config/env.js';
 import type { Database } from '../../db/pool.js';
 import { childLogger } from '../../lib/logger.js';
@@ -8,8 +14,10 @@ import { EventsRepository } from '../../repositories/events.js';
 import { ModerationRepository } from '../../repositories/moderation.js';
 import { OpsRepository } from '../../repositories/ops.js';
 import { PublicationsRepository } from '../../repositories/publications.js';
+import { UsersRepository } from '../../repositories/users.js';
 import { ProfanityGuard } from '../profanity/index.js';
 import type { StorageDriver } from '../storage/driver.js';
+import { loadPublishingSettings } from './settings.js';
 import { TelegramPublisher, type PublishMedia } from './telegram-publisher.js';
 
 const log = childLogger({ module: 'publishing' });
@@ -21,6 +29,8 @@ export interface PublishRequest {
   userAgent: string | null;
   /** Подтверждение владельца — обязательно (ТЗ §13). */
   confirmed: boolean;
+  /** Публикация выполнена правилом автопубликации, а не действием в интерфейсе. */
+  auto?: boolean;
 }
 
 export interface PublishOutcome {
@@ -53,9 +63,10 @@ export interface PublishOutcome {
  * обращение к Telegram. Ни одну из проверок нельзя пропустить флагом:
  * они выполняются здесь, а не в интерфейсе.
  *
- * Автопубликация предусмотрена архитектурно, но в MVP выключена: без
- * подтверждения человека метод возвращает отказ, и никакой настройкой
- * это не обходится, пока AUTO_PUBLISH_ENABLED не включён ЯВНО.
+ * Ручная публикация без подтверждения невозможна: метод возвращает отказ,
+ * и обойти это нельзя. Автоматическая публикация идёт отдельным входом
+ * (publishAutomatically) и тоже опирается на решение человека — на
+ * записанное в настройках включение владельцем или администратором.
  */
 export class PublishingService {
   private readonly events: EventsRepository;
@@ -64,6 +75,7 @@ export class PublishingService {
   private readonly publications: PublicationsRepository;
   private readonly audit: AuditRepository;
   private readonly ops: OpsRepository;
+  private readonly users: UsersRepository;
   private readonly profanity: ProfanityGuard;
   private readonly publisher: TelegramPublisher;
 
@@ -80,18 +92,103 @@ export class PublishingService {
     this.publications = new PublicationsRepository(db);
     this.audit = new AuditRepository(db);
     this.ops = new OpsRepository(db);
+    this.users = new UsersRepository(db);
     this.profanity = profanity ?? new ProfanityGuard();
     this.publisher = publisher ?? new TelegramPublisher(config);
   }
 
-  get publisherStatus() {
+  async publisherStatus() {
+    const settings = await this.settings();
     return {
       configured: this.publisher.isConfigured(),
       reason: this.publisher.unavailableReason(),
       channel: this.publisher.channel,
       dryRun: this.publisher.isDryRun,
-      autoPublishEnabled: this.config.AUTO_PUBLISH_ENABLED,
+      autoPublishEnabled: settings.autoPublish,
+      autoPublishMinConfidence: settings.minConfidence,
+      autoPublishDelayMinutes: settings.delayMinutes,
     };
+  }
+
+  /** Текущие настройки публикации. Некорректная запись не включает ничего. */
+  async settings(): Promise<PublishingSettings> {
+    return loadPublishingSettings(this.db);
+  }
+
+  /**
+   * Автоматическая публикация одного события.
+   *
+   * Условия проверяются ЗДЕСЬ, а не в задаче очереди: задача лишь
+   * напоминает о событии, и подделать её payload не должно быть
+   * достаточно для отправки в канал.
+   *
+   * Подтверждение человека при этом не подделывается. Автопубликацию
+   * включает владелец или администратор, и его решение хранится в
+   * настройке вместе с именем; каждая автоматическая публикация
+   * выполняется от его имени и после повторной проверки того, что он всё
+   * ещё существует, активен и сохранил права. Отозвали права — отправка
+   * прекращается, даже если переключатель остался включённым.
+   */
+  async publishAutomatically(input: {
+    eventId: string;
+  }): Promise<PublishOutcome & { skipped?: string }> {
+    const settings = await this.settings();
+
+    if (!settings.autoPublish) {
+      return { ok: false, skipped: 'Автопубликация выключена' };
+    }
+    if (!settings.enabledBy) {
+      return { ok: false, skipped: 'Не записано, кто включил автопубликацию' };
+    }
+
+    const user = await this.users.findById(settings.enabledBy);
+    if (!user || !user.isActive) {
+      return { ok: false, skipped: 'Учётная запись, включившая автопубликацию, недоступна' };
+    }
+    if (user.role !== 'OWNER' && user.role !== 'ADMIN') {
+      return { ok: false, skipped: 'У включившего автопубликацию больше нет прав на публикацию' };
+    }
+
+    const event = await this.events.findById(input.eventId);
+    if (!event) return { ok: false, skipped: 'Событие не найдено' };
+
+    // Материал, помеченный на проверку человеком, автоматически не уходит:
+    // этот статус ставится как раз тогда, когда с текстом что-то не так.
+    if (event.status !== 'PROCESSED') {
+      return { ok: false, skipped: `Статус события ${event.status} — требуется человек` };
+    }
+
+    const moderation = await this.moderation.findByEvent(input.eventId);
+    if (!moderation) return { ok: false, skipped: 'Событие не в очереди модерации' };
+
+    // Только нетронутые материалы. Взятое в работу, отклонённое,
+    // заблокированное и уже опубликованное — не дело автоматики.
+    if (moderation.status !== 'PENDING') {
+      return { ok: false, skipped: `Материал уже в статусе ${moderation.status}` };
+    }
+
+    const draft = await this.drafts.findCurrent(input.eventId);
+    if (!draft) return { ok: false, skipped: 'У события нет черновика' };
+
+    if (draft.confidence < settings.minConfidence) {
+      return {
+        ok: false,
+        skipped: `Уверенность ${draft.confidence.toFixed(2)} ниже порога ${settings.minConfidence.toFixed(2)}`,
+      };
+    }
+
+    // Одобрение записывается от имени того, кто включил автопубликацию:
+    // в журнале должно быть видно человека, принявшего это решение.
+    await this.moderation.setStatus(input.eventId, 'APPROVED', { reviewedBy: user.id });
+
+    return this.publish({
+      eventId: input.eventId,
+      user,
+      ipAddress: null,
+      userAgent: 'auto-publish',
+      confirmed: true,
+      auto: true,
+    });
   }
 
   async publish(request: PublishRequest): Promise<PublishOutcome> {
@@ -104,6 +201,7 @@ export class PublishingService {
       entityId: eventId,
       ipAddress: request.ipAddress,
       userAgent: request.userAgent,
+      details: { auto: request.auto === true },
     });
 
     // --- 1. Права ---------------------------------------------------------

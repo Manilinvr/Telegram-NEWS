@@ -8,6 +8,8 @@ import { DraftsRepository } from '../../repositories/drafts.js';
 import { EventsRepository } from '../../repositories/events.js';
 import { ModerationRepository } from '../../repositories/moderation.js';
 import { OpsRepository } from '../../repositories/ops.js';
+import { JOB_TYPES, JobQueue } from '../../queue/queue.js';
+import { loadPublishingSettings } from '../publishing/settings.js';
 import type { AiProcessor } from '../ai/processor.js';
 import { loadEditorialStyle } from '../ai/style.js';
 import { ProfanityGuard } from '../profanity/index.js';
@@ -30,6 +32,7 @@ export class DraftService {
   private readonly moderation: ModerationRepository;
   private readonly categories: CategoriesRepository;
   private readonly ops: OpsRepository;
+  private readonly queue: JobQueue;
   private readonly profanity: ProfanityGuard;
   private readonly transcription: TranscriptionService;
 
@@ -45,6 +48,7 @@ export class DraftService {
     this.moderation = new ModerationRepository(db);
     this.categories = new CategoriesRepository(db);
     this.ops = new OpsRepository(db);
+    this.queue = new JobQueue(db);
     this.transcription = transcription;
     this.profanity = profanity ?? new ProfanityGuard();
   }
@@ -192,6 +196,14 @@ export class DraftService {
       blockedReason: finalReport.allowed ? null : finalReport.reason,
     });
 
+    // Автопубликация ставится отдельной задачей с паузой, а не
+    // выполняется здесь же: событие ещё дополняется публикациями других
+    // каналов, и за это время черновик может быть пересобран. Условия
+    // проверяются при выполнении задачи, а не сейчас.
+    if (finalReport.allowed) {
+      await this.scheduleAutoPublish(eventId);
+    }
+
     await this.ops.recordHistory({
       entityType: 'event',
       entityId: eventId,
@@ -285,6 +297,27 @@ export class DraftService {
     });
 
     return { draft, allowed: report.allowed };
+  }
+
+  /**
+   * Поставить задачу автоматической публикации, если она включена.
+   *
+   * Ключ дедупликации привязан к событию: пересборка черновика не
+   * плодит задачи, а откладывает отправку на новый срок только в том
+   * случае, если прежняя ещё не выполнена.
+   */
+  private async scheduleAutoPublish(eventId: string): Promise<void> {
+    const settings = await loadPublishingSettings(this.db);
+    if (!settings.autoPublish) return;
+
+    await this.queue.enqueue({
+      type: JOB_TYPES.AUTO_PUBLISH,
+      stage: PIPELINE_STAGE.TELEGRAM_PUBLISH,
+      payload: { eventId },
+      dedupeKey: `autopublish:${eventId}`,
+      delaySeconds: settings.delayMinutes * 60,
+      priority: 500,
+    });
   }
 
   private async eventHasMedia(eventId: string): Promise<boolean> {
