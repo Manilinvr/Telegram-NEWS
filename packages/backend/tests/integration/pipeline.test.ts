@@ -555,6 +555,37 @@ describe('Автопубликация', () => {
     expect(queue?.status).toBe('PENDING');
   });
 
+  it('включённая позже автопубликация подхватывает очередь', async () => {
+    // Задача автопубликации ставится при создании черновика, поэтому
+    // переключатель, включённый после, не действовал ни на что — со
+    // стороны это выглядело как «автопубликация не работает».
+    const eventId = await prepareEvent();
+    await setAutoPublish({ autoPublish: true, delayMinutes: 0 });
+
+    const { handlers } = createHandlers(db, config);
+    const result = (await handlers[JOB_TYPES.CLEANUP]!({})) as { autoQueued: number };
+
+    expect(result.autoQueued).toBe(1);
+
+    const job = await db.maybeOne(
+      `SELECT payload FROM processing_jobs
+        WHERE type = $1 AND status = 'QUEUED'
+        ORDER BY created_at DESC LIMIT 1`,
+      [JOB_TYPES.AUTO_PUBLISH],
+    );
+    expect(String((job?.payload as { eventId?: string })?.eventId)).toBe(eventId);
+  });
+
+  it('с выключенной автопубликацией очередь не трогается', async () => {
+    await prepareEvent();
+    await setAutoPublish({ autoPublish: false });
+
+    const { handlers } = createHandlers(db, config);
+    const result = (await handlers[JOB_TYPES.CLEANUP]!({})) as { autoQueued: number };
+
+    expect(result.autoQueued).toBe(0);
+  });
+
   it('без записи о том, кто включил, отправки нет', async () => {
     const eventId = await prepareEvent();
     await setAutoPublish({ autoPublish: true, enabledBy: null });

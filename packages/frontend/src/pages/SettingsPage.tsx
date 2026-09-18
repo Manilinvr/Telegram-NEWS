@@ -55,6 +55,10 @@ export function SettingsPage() {
   const [style, setStyle] = useState<EditorialStyle>(DEFAULT_EDITORIAL_STYLE);
   const [styleLoaded, setStyleLoaded] = useState(false);
   const stored = settings.data?.settings as Record<string, unknown> | undefined;
+  const runtimeSettings = settings.data?.runtime as Record<string, never> | undefined;
+  // Поле пароля показывается только там, где сервер его действительно
+  // спрашивает: иначе форма просит то, что ни на что не влияет.
+  const needPassword = runtimeSettings?.settingsRequirePassword !== false;
 
   useEffect(() => {
     if (styleLoaded || !stored) return;
@@ -63,7 +67,6 @@ export function SettingsPage() {
     setStyleLoaded(true);
   }, [stored, styleLoaded]);
 
-  // Автопубликация: раздел критичный, поэтому сохранение требует пароля.
   const [publishing, setPublishing] = useState<PublishingSettings>(DEFAULT_PUBLISHING_SETTINGS);
   const [publishingLoaded, setPublishingLoaded] = useState(false);
   const [publishPassword, setPublishPassword] = useState('');
@@ -85,7 +88,7 @@ export function SettingsPage() {
           minConfidence: next.minConfidence,
           delayMinutes: next.delayMinutes,
         },
-        confirmPassword: publishPassword,
+        ...(needPassword ? { confirmPassword: publishPassword } : {}),
       });
       setPublishing(next);
       setPublishPassword('');
@@ -600,26 +603,32 @@ export function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="field">
-                    <label className="field__label" htmlFor="auto-password">
-                      Пароль для подтверждения
-                    </label>
-                    <input
-                      id="auto-password"
-                      className="input"
-                      type="password"
-                      autoComplete="current-password"
-                      value={publishPassword}
-                      onChange={(event) => setPublishPassword(event.target.value)}
-                      placeholder="Раздел критичный — нужен ваш пароль"
-                    />
-                  </div>
+                  {needPassword && (
+                    <div className="field">
+                      <label className="field__label" htmlFor="auto-password">
+                        Пароль для подтверждения
+                      </label>
+                      <input
+                        id="auto-password"
+                        className="input"
+                        type="password"
+                        autoComplete="current-password"
+                        value={publishPassword}
+                        onChange={(event) => setPublishPassword(event.target.value)}
+                        placeholder="Раздел критичный — нужен ваш пароль"
+                      />
+                      <p className="field__hint">
+                        Чтобы не вводить пароль каждый раз, задайте на хостинге
+                        SETTINGS_REQUIRE_PASSWORD=false — вход и права при этом остаются.
+                      </p>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                     <button
                       type="button"
                       className={`btn ${publishing.autoPublish ? '' : 'btn--primary'}`}
-                      disabled={!publishPassword || updateSetting.isPending}
+                      disabled={updateSetting.isPending || (needPassword && !publishPassword)}
                       onClick={() =>
                         void savePublishing({ ...publishing, autoPublish: !publishing.autoPublish })
                       }
@@ -629,7 +638,7 @@ export function SettingsPage() {
                     <button
                       type="button"
                       className="btn btn--sm"
-                      disabled={!publishPassword || updateSetting.isPending}
+                      disabled={updateSetting.isPending || (needPassword && !publishPassword)}
                       onClick={() => void savePublishing(publishing)}
                     >
                       Сохранить пороги
