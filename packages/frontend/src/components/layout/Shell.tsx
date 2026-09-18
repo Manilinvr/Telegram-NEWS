@@ -29,8 +29,8 @@ export function Shell({ children }: { children: ReactNode }) {
             errors: errors?.length ?? 0,
           }}
           status={{
-            healthy: (summary?.sources.failing ?? 0) === 0 && (summary?.errors.unresolved ?? 0) === 0,
-            degraded: (summary?.errors.unresolved ?? 0) > 0,
+            failingSources: summary?.sources.failing ?? 0,
+            unresolvedErrors: summary?.errors.unresolved ?? 0,
             updatedAt: summary?.generatedAt ?? null,
           }}
         />
