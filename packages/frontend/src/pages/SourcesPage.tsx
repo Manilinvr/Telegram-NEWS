@@ -21,6 +21,15 @@ export function SourcesPage() {
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [form, setForm] = useState({ type: 'TELEGRAM', title: '', username: '', url: '' });
+  // Правка существующего источника: канал переименовали или сменил адрес —
+  // раньше приходилось удалять его вместе со всеми собранными публикациями
+  // и заводить заново.
+  const [editing, setEditing] = useState<{
+    id: string;
+    title: string;
+    username: string;
+    url: string;
+  } | null>(null);
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
@@ -35,6 +44,23 @@ export function SourcesPage() {
       setNotice({ tone: 'success', text: 'Источник добавлен, выполняется первый опрос.' });
       setForm({ type: 'TELEGRAM', title: '', username: '', url: '' });
       setShowForm(false);
+    } catch (error) {
+      setNotice({ tone: 'danger', text: (error as Error).message });
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!editing) return;
+    setNotice(null);
+    try {
+      await update.mutateAsync({
+        id: editing.id,
+        title: editing.title,
+        username: editing.username.replace(/^@/, '') || null,
+        url: editing.url,
+      });
+      setNotice({ tone: 'success', text: 'Источник изменён.' });
+      setEditing(null);
     } catch (error) {
       setNotice({ tone: 'danger', text: (error as Error).message });
     }
@@ -185,6 +211,61 @@ export function SourcesPage() {
           </Panel>
         )}
 
+        {editing && (
+          <Panel title="Изменение источника">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleEditSave();
+              }}
+              style={{ display: 'grid', gap: 'var(--space-3)', maxWidth: 560 }}
+            >
+              <div className="field">
+                <label className="field__label" htmlFor="edit-title">Название</label>
+                <input
+                  id="edit-title"
+                  className="input"
+                  value={editing.title}
+                  onChange={(event) => setEditing({ ...editing, title: event.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="edit-username">Адрес в ссылке</label>
+                <input
+                  id="edit-username"
+                  className="input"
+                  value={editing.username}
+                  onChange={(event) => setEditing({ ...editing, username: event.target.value })}
+                />
+                <span className="field__hint">Часть ссылки после t.me/ или vk.com/. Без @ и без https://</span>
+              </div>
+
+              <div className="field">
+                <label className="field__label" htmlFor="edit-url">Ссылка</label>
+                <input
+                  id="edit-url"
+                  className="input"
+                  type="url"
+                  value={editing.url}
+                  onChange={(event) => setEditing({ ...editing, url: event.target.value })}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                <button type="submit" className="btn btn--primary" disabled={update.isPending}>
+                  {update.isPending ? 'Сохранение…' : 'Сохранить'}
+                </button>
+                <button type="button" className="btn" onClick={() => setEditing(null)}>
+                  Отмена
+                </button>
+              </div>
+            </form>
+          </Panel>
+        )}
+
         <Panel title="Подключённые источники" flush>
           <QueryState
             isLoading={sources.isLoading}
@@ -243,6 +324,21 @@ export function SourcesPage() {
                     title="Опросить сейчас"
                   >
                     <IconRefresh size={14} />
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() =>
+                      setEditing({
+                        id: source.id,
+                        title: source.title,
+                        username: source.username ?? '',
+                        url: source.url ?? '',
+                      })
+                    }
+                  >
+                    Изменить
                   </button>
 
                   <button

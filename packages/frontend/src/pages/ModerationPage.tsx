@@ -15,6 +15,9 @@ import { formatRelative, IMPORTANCE_LABELS, IMPORTANCE_TONE, MODERATION_STATUS_L
  */
 export function ModerationPage() {
   const [statusFilter, setStatusFilter] = useState<'pending' | 'blocked' | 'rejected' | 'all'>('pending');
+  // Сортировка выполняется на месте: очередь целиком уже загружена, и
+  // лишний запрос к серверу ради перестановки строк не нужен.
+  const [sortBy, setSortBy] = useState<'priority' | 'time' | 'title'>('priority');
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
 
   const statuses =
@@ -39,6 +42,32 @@ export function ModerationPage() {
 
   const counts = queue.data?.counts;
 
+  const PRIORITY_ORDER: Record<string, number> = {
+    CRITICAL: 0,
+    HIGH: 1,
+    MEDIUM: 2,
+    LOW: 3,
+  };
+
+  const items = useMemo(() => {
+    const list = [...(queue.data?.items ?? [])];
+    if (sortBy === 'time') {
+      // Новые сверху: свежая новость важнее вчерашней.
+      return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    if (sortBy === 'title') {
+      return list.sort((a, b) =>
+        (a.eventTitle ?? '').localeCompare(b.eventTitle ?? '', 'ru', { sensitivity: 'base' }),
+      );
+    }
+    // По срочности, а внутри одной срочности — новые сверху.
+    return list.sort(
+      (a, b) =>
+        (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9) ||
+        b.createdAt.localeCompare(a.createdAt),
+    );
+  }, [queue.data?.items, sortBy]);
+
   return (
     <>
       <PageHeader
@@ -54,6 +83,16 @@ export function ModerationPage() {
         <Panel
           title="Очередь материалов"
           actions={
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <Segmented
+              value={sortBy}
+              onChange={setSortBy}
+              options={[
+                { value: 'priority', label: 'По срочности' },
+                { value: 'time', label: 'По времени' },
+                { value: 'title', label: 'По событию' },
+              ]}
+            />
             <Segmented
               value={statusFilter}
               onChange={setStatusFilter}
@@ -64,18 +103,19 @@ export function ModerationPage() {
                 { value: 'all', label: 'Все' },
               ]}
             />
+            </div>
           }
           flush
         >
           <QueryState
             isLoading={queue.isLoading}
             error={queue.error}
-            isEmpty={(queue.data?.items.length ?? 0) === 0}
+            isEmpty={items.length === 0}
             emptyTitle="Очередь пуста"
             emptyHint="Новые материалы появятся здесь автоматически после обработки."
           >
             <div className="list list--boxed" style={{ padding: 'var(--space-2) 0' }}>
-              {queue.data?.items.map((item) => (
+              {items.map((item) => (
                 <button
                   key={item.id}
                   type="button"

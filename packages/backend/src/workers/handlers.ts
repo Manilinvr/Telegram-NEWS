@@ -5,6 +5,7 @@ import { childLogger } from '../lib/logger.js';
 import { JOB_TYPES, JobQueue } from '../queue/queue.js';
 import { CategoriesRepository } from '../repositories/categories.js';
 import { OpsRepository } from '../repositories/ops.js';
+import { ModerationRepository } from '../repositories/moderation.js';
 import { SessionsRepository } from '../repositories/sessions.js';
 import { AiProcessor } from '../modules/ai/processor.js';
 import { EmbeddingRepository } from '../modules/dedup/repository.js';
@@ -160,13 +161,17 @@ export function createHandlers(db: Database, config: AppConfig): {
     /** Периодическое обслуживание. */
     [JOB_TYPES.CLEANUP]: async () => {
       const sessionsRepo = new SessionsRepository(db);
-      const [sessions, jobs, stale] = await Promise.all([
+      const moderationRepo = new ModerationRepository(db);
+      const [sessions, jobs, stale, expired] = await Promise.all([
         sessionsRepo.cleanup(),
         queue.purgeCompleted(7),
         queue.recoverStale(15),
+        // Вчерашние нерассмотренные материалы уходят в «Отклонённые»,
+        // чтобы очередь начинала день пустой.
+        moderationRepo.expireStale(),
       ]);
-      log.info({ sessions, jobs, stale }, 'Обслуживание выполнено');
-      return { sessions, jobs, stale };
+      log.info({ sessions, jobs, stale, expired }, 'Обслуживание выполнено');
+      return { sessions, jobs, stale, expired };
     },
   };
 

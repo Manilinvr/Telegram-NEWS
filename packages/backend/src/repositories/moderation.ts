@@ -76,6 +76,31 @@ export class ModerationRepository {
     return rows.map(mapModeration);
   }
 
+  /**
+   * Закрыть материалы, не рассмотренные за сутки.
+   *
+   * Очередь копит всё подряд, и к утру в ней сотни вчерашних новостей,
+   * среди которых не видно сегодняшних. Нерассмотренное за прошедшие
+   * сутки закрывается — но НЕ удаляется: запись переходит в «Отклонённые»
+   * с понятной причиной, откуда её можно вернуть в работу и опубликовать.
+   *
+   * Граница — полночь по Москве, а не «сутки назад»: город живёт по
+   * московскому времени, и лента должна начинаться с начала дня.
+   */
+  async expireStale(): Promise<number> {
+    const result = await this.db.query(
+      `UPDATE moderation_queue
+          SET status           = 'REJECTED',
+              rejection_reason = $1,
+              updated_at       = now()
+        WHERE status IN ('PENDING', 'IN_REVIEW')
+          AND created_at <
+              (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow')) AT TIME ZONE 'Europe/Moscow'`,
+      ['Автоочистка: материал не рассмотрен до конца суток'],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async setStatus(
     eventId: string,
     status: ModerationStatus,

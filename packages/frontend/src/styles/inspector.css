@@ -397,17 +397,46 @@
     padding: 0;
     align-items: stretch;
   }
+  /*
+   * На телефоне три колонки не помещаются, и вторая с третьей раньше
+   * просто скрывались. Вместе с ними пропадал редактор новости — с
+   * телефона материал можно было только посмотреть, но не исправить.
+   *
+   * Теперь панели встают друг под друга и прокручиваются одной лентой:
+   * просмотр, затем редактирование, затем видео. Внутренняя прокрутка
+   * панелей на этой ширине отключена — иначе получалась прокрутка
+   * внутри прокрутки, в которой невозможно попасть пальцем.
+   */
   .inspector-row {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-rows: auto;
     max-height: 100vh;
     max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: var(--space-3);
+    align-items: start;
   }
   .inspector-row > *:nth-child(2),
   .inspector-row > *:nth-child(3) {
-    display: none;
+    display: flex;
   }
   .inspector {
     border-radius: 0;
     border: none;
+    max-height: none;
+    overflow: visible;
+  }
+  .inspector__body {
+    overflow: visible;
+    max-height: none;
+  }
+  /* Строка действий остаётся под рукой при прокрутке длинного текста. */
+  .inspector__footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: var(--bg-panel);
   }
 }

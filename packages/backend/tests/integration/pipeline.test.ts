@@ -7,6 +7,7 @@ import { EmbeddingRepository } from '../../src/modules/dedup/repository.js';
 import { AdapterRegistry } from '../../src/modules/ingestion/registry.js';
 import { IngestionService } from '../../src/modules/ingestion/service.js';
 import { ModerationService } from '../../src/modules/moderation/service.js';
+import { ModerationRepository } from '../../src/repositories/moderation.js';
 import { DraftService } from '../../src/modules/pipeline/draft-service.js';
 import { EventBuilder } from '../../src/modules/pipeline/event-builder.js';
 import { PublishingService } from '../../src/modules/publishing/service.js';
@@ -473,5 +474,58 @@ describe('История версий черновика', () => {
     // Предыдущая версия сохранена целиком.
     expect(history[1]!.id).toBe(first!.id);
     expect(history[1]!.isCurrent).toBe(false);
+  });
+});
+
+describe('Ежедневная очистка очереди модерации', () => {
+  it('закрывает вчерашние материалы и не трогает сегодняшние', async () => {
+    const db = await getTestDb();
+    const moderation = new ModerationRepository(db);
+
+    const source = await db.one<{ id: string }>(
+      `INSERT INTO sources (type, title, username, url, is_active)
+       VALUES ('TELEGRAM','Тест','t','https://t.me/t', true) RETURNING id`,
+    );
+
+    // Две записи: одна создана до сегодняшней полуночи по Москве, другая после.
+    const mkEvent = async (title: string) =>
+      db.one<{ id: string }>(
+        `INSERT INTO events (title, summary, category_slug, importance, occurred_at,
+                             first_reported_at, last_reported_at, status)
+         VALUES ($1, $1, 'other', 'MEDIUM', now(), now(), now(), 'PROCESSED') RETURNING id`,
+        [title],
+      );
+
+    const yesterday = await mkEvent('Вчерашнее');
+    const today = await mkEvent('Сегодняшнее');
+
+    await db.query(
+      `INSERT INTO moderation_queue (event_id, status, priority, created_at)
+       VALUES ($1,'PENDING','MEDIUM',
+               (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') - interval '1 hour')
+                 AT TIME ZONE 'Europe/Moscow')`,
+      [yesterday.id],
+    );
+    await db.query(
+      `INSERT INTO moderation_queue (event_id, status, priority, created_at)
+       VALUES ($1,'PENDING','MEDIUM', now())`,
+      [today.id],
+    );
+
+    const closed = await moderation.expireStale();
+    expect(closed).toBe(1);
+
+    const rows = await db.many<{ status: string; rejection_reason: string | null; title: string }>(
+      `SELECT mq.status, mq.rejection_reason, e.title
+         FROM moderation_queue mq JOIN events e ON e.id = mq.event_id
+        ORDER BY e.title`,
+    );
+    const byTitle = new Map(rows.map((r) => [r.title, r]));
+    expect(byTitle.get('Вчерашнее')?.status).toBe('REJECTED');
+    expect(byTitle.get('Вчерашнее')?.rejection_reason).toMatch(/Автоочистка/);
+    // Сегодняшнее остаётся в работе — иначе очередь опустела бы среди дня.
+    expect(byTitle.get('Сегодняшнее')?.status).toBe('PENDING');
+
+    await db.query('DELETE FROM sources WHERE id = $1', [source.id]);
   });
 });
