@@ -299,6 +299,38 @@ const envSchema = z
       });
     }
 
+    // Адрес службы проверяется на разбираемость здесь, а не при запросе.
+    // Потерянный при копировании «https:» давал отказ на КАЖДОМ обращении
+    // с сообщением «Failed to parse URL» — установка при этом считалась
+    // рабочей и просто разбирала новости правилами.
+    if (value.AI_BASE_URL) {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(value.AI_BASE_URL);
+      } catch {
+        parsed = null;
+      }
+
+      if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['AI_BASE_URL'],
+          message:
+            `AI_BASE_URL должен быть полным адресом с http:// или https:// — сейчас «${value.AI_BASE_URL}». ` +
+            'Например: https://generativelanguage.googleapis.com/v1beta/openai',
+        });
+      } else if (/\/chat\/completions\/?$/.test(parsed.pathname)) {
+        // Этот путь система добавляет сама, и с ним в адресе запрос
+        // уходит на /chat/completions/chat/completions.
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['AI_BASE_URL'],
+          message:
+            'AI_BASE_URL указывается БЕЗ /chat/completions — этот путь добавляется автоматически.',
+        });
+      }
+    }
+
     if (value.TELEGRAM_INGEST_MODE === 'bot' && !value.TELEGRAM_BOT_TOKEN) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
