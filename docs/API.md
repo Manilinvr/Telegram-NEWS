@@ -128,6 +128,9 @@
 | `POST` | `/settings/profanity/test` | Проверить текст фильтром |
 | `GET` | `/diagnostics` | Состояние подсистем |
 | `GET` | `/diagnostics/errors` | Ошибки обработки |
+| `POST` | `/diagnostics/errors/:id/resolve` | Пометить ошибку разобранной |
+| `POST` | `/diagnostics/errors/resolve-all` | Пометить разобранными все или повторы одной: `{ stage?, message? }` |
+| `POST` | `/diagnostics/ai-check` | Живая проверка связи с моделью: один короткий запрос |
 | `GET` | `/diagnostics/jobs` | Очередь задач |
 | `GET` | `/audit` | Журнал действий |
 | `GET` | `/health` | Проверка живости (без авторизации) |

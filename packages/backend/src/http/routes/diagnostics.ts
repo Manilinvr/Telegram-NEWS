@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../../config/env.js';
 import type { Database } from '../../db/pool.js';
+import { AiProcessor } from '../../modules/ai/processor.js';
 import { AdapterRegistry } from '../../modules/ingestion/registry.js';
 import { TelegramPublisher } from '../../modules/publishing/telegram-publisher.js';
 import { createTranscriptionProvider } from '../../modules/transcription/provider.js';
@@ -42,6 +43,8 @@ export default async function diagnosticsRoutes(
     const transcription = createTranscriptionProvider(config);
     const capabilities = await db.capabilities();
 
+    const aiReason = new AiProcessor(config, []).unavailableReason();
+
     const [jobs, errors, sourceHealth] = await Promise.all([
       queue.counts(),
       ops.errorCounts(),
@@ -72,7 +75,13 @@ export default async function diagnosticsRoutes(
       ai: {
         provider: config.AI_PROVIDER,
         model: config.AI_MODEL,
-        configured: config.AI_PROVIDER === 'mock' || Boolean(config.ANTHROPIC_API_KEY),
+        // Настроенность спрашивается у самого процессора: раньше здесь
+        // проверялся только ключ Anthropic, и подключённая служба с
+        // интерфейсом OpenAI (DeepSeek, локальная модель) показывалась
+        // ненастроенной — по диагностике нельзя было понять, работает
+        // модель или разбор идёт по правилам.
+        configured: aiReason === null,
+        reason: aiReason,
       },
       jobs,
       errors,
@@ -80,6 +89,18 @@ export default async function diagnosticsRoutes(
       live: { clients: liveBus.clientCount },
       autoPublishEnabled: config.AUTO_PUBLISH_ENABLED,
     };
+  });
+
+  /**
+   * Живая проверка модели.
+   *
+   * Отдельным действием, а не при каждом открытии диагностики: это
+   * настоящий запрос к внешней службе, и делать его на каждый показ
+   * страницы означало бы тратить платный лимит впустую.
+   */
+  app.post('/diagnostics/ai-check', { preHandler: app.requireAuth }, async () => {
+    const result = await new AiProcessor(config, []).check();
+    return { ...result, configuredProvider: config.AI_PROVIDER };
   });
 
   app.get('/diagnostics/errors', { preHandler: app.requireAuth }, async (request) => {
@@ -101,6 +122,25 @@ export default async function diagnosticsRoutes(
     await ops.resolveError(parsed.data.id);
     return { ok: true };
   });
+
+  /**
+   * Закрыть разом все ошибки — или только повторы одной и той же.
+   *
+   * После исправления причины в журнале остаются сотни одинаковых записей
+   * от прежней версии; на их фоне не видно новую ошибку. Записи при этом
+   * не удаляются, а помечаются разобранными.
+   */
+  app.post(
+    '/diagnostics/errors/resolve-all',
+    { preHandler: app.requireRole(['OWNER', 'ADMIN']) },
+    async (request) => {
+      const parsed = z
+        .object({ stage: z.string().max(64).optional(), message: z.string().max(2000).optional() })
+        .safeParse(request.body ?? {});
+      const resolved = await ops.resolveAllErrors(parsed.success ? parsed.data : {});
+      return { ok: true, resolved };
+    },
+  );
 
   app.get('/diagnostics/jobs', { preHandler: app.requireAuth }, async (request) => {
     const parsed = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }).safeParse(request.query);

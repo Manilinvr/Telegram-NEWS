@@ -38,6 +38,13 @@ const optionalStr = z
   .optional()
   .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim()));
 
+/**
+ * Модель по умолчанию — от Anthropic. Значение вынесено в константу,
+ * чтобы проверка конфигурации могла отличить «оставлено по умолчанию»
+ * от осознанно выбранного названия.
+ */
+const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5';
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -190,7 +197,7 @@ const envSchema = z
     AI_BASE_URL: optionalStr,
     /** Ключ этой службы. Локальной модели ключ обычно не нужен. */
     AI_API_KEY: optionalStr,
-    AI_MODEL: z.string().default('claude-opus-5'),
+    AI_MODEL: z.string().default(DEFAULT_ANTHROPIC_MODEL),
     AI_MAX_OUTPUT_TOKENS: int(4096),
     AI_TIMEOUT_MS: int(60_000),
     AI_TEMPERATURE: num(0.2),
@@ -269,6 +276,18 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['VOYAGE_API_KEY'],
         message: 'Для EMBEDDING_PROVIDER=voyage нужен VOYAGE_API_KEY.',
+      });
+    }
+
+    // Название модели по умолчанию — от Anthropic, и другой службе оно
+    // ничего не говорит: запрос отклоняется с «model not found», а система
+    // молча уходит на разбор по правилам. Поэтому название требуется явно.
+    if (value.AI_PROVIDER === 'openai-compatible' && value.AI_MODEL === DEFAULT_ANTHROPIC_MODEL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AI_MODEL'],
+        message:
+          'Для AI_PROVIDER=openai-compatible укажите AI_MODEL — название модели в выбранной службе, например deepseek-chat.',
       });
     }
 

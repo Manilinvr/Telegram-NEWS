@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useDashboard, useJobs, useProcessingErrors } from '../api/hooks.js';
+import { useDashboard, useJobs, useProcessingErrors, useResolveErrors } from '../api/hooks.js';
 import { PageHeader } from '../components/layout/PageHeader.jsx';
 import { LineChart } from '../components/charts/LineChart.jsx';
 import { DonutChart } from '../components/charts/DonutChart.jsx';
@@ -11,9 +11,36 @@ export function AnalyticsPage() {
   const [period, setPeriod] = useState<'24h' | '7d' | '30d'>('7d');
   const dashboard = useDashboard(period);
   const errors = useProcessingErrors();
+  const resolveErrors = useResolveErrors();
   const jobs = useJobs();
 
   const summary = dashboard.data?.summary;
+
+  // Одинаковые ошибки сворачиваются в одну строку со счётчиком.
+  // Сбой обычно повторяется на каждой публикации, и список из сотни
+  // одинаковых записей скрывал все остальные ошибки — при том, что
+  // разных причин там было две-три.
+  const errorGroups = Object.values(
+    (errors.data ?? []).reduce<
+      Record<string, { key: string; stage: string; message: string; count: number; lastAt: string }>
+    >((acc, error) => {
+      const key = `${error.stage}|${error.message}`;
+      const existing = acc[key];
+      if (existing) {
+        existing.count += 1;
+        if (error.createdAt > existing.lastAt) existing.lastAt = error.createdAt;
+      } else {
+        acc[key] = {
+          key,
+          stage: error.stage,
+          message: error.message,
+          count: 1,
+          lastAt: error.createdAt,
+        };
+      }
+      return acc;
+    }, {}),
+  ).sort((a, b) => (a.lastAt > b.lastAt ? -1 : 1));
 
   return (
     <>
@@ -110,27 +137,54 @@ export function AnalyticsPage() {
           <Panel
             title="Ошибки обработки"
             actions={
-              <Badge tone={(errors.data?.length ?? 0) > 0 ? 'danger' : 'success'}>
-                {errors.data?.length ?? 0}
-              </Badge>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                {(errors.data?.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    disabled={resolveErrors.isPending}
+                    title="Пометить все ошибки разобранными. Записи остаются в журнале."
+                    onClick={() => resolveErrors.mutate({})}
+                  >
+                    {resolveErrors.isPending ? 'Убираем…' : 'Отметить решёнными'}
+                  </button>
+                )}
+                <Badge tone={(errors.data?.length ?? 0) > 0 ? 'danger' : 'success'}>
+                  {errors.data?.length ?? 0}
+                </Badge>
+              </span>
             }
             flush
           >
             <QueryState
               isLoading={errors.isLoading}
               error={errors.error}
-              isEmpty={(errors.data?.length ?? 0) === 0}
+              isEmpty={errorGroups.length === 0}
               emptyTitle="Ошибок нет"
               emptyHint="Все этапы обработки отработали без сбоев."
             >
               <div className="list" style={{ paddingBottom: 'var(--space-3)' }}>
-                {errors.data?.slice(0, 12).map((error) => (
-                  <div key={error.id} className="list-row" style={{ cursor: 'default' }}>
-                    <Badge tone="danger">{error.stage}</Badge>
+                {errorGroups.slice(0, 12).map((group) => (
+                  <div key={group.key} className="list-row" style={{ cursor: 'default' }}>
+                    <Badge tone="danger">{group.stage}</Badge>
                     <span className="list-row__body">
-                      <span className="list-row__title">{error.message}</span>
-                      <span className="list-row__meta">{formatDateTime(error.createdAt)}</span>
+                      <span className="list-row__title">{group.message}</span>
+                      <span className="list-row__meta">
+                        {group.count > 1 ? `${group.count} раз · последний ` : ''}
+                        {formatDateTime(group.lastAt)}
+                      </span>
                     </span>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={resolveErrors.isPending}
+                      title="Убрать только эти повторы"
+                      onClick={() =>
+                        resolveErrors.mutate({ stage: group.stage, message: group.message })
+                      }
+                    >
+                      Убрать
+                    </button>
                   </div>
                 ))}
               </div>

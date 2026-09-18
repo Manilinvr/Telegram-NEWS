@@ -11,6 +11,7 @@ import { OpsRepository } from '../../repositories/ops.js';
 import type { AiProcessor } from '../ai/processor.js';
 import { ProfanityGuard } from '../profanity/index.js';
 import { TranscriptionService } from '../transcription/service.js';
+import { resolveCategorySlug } from './category-slug.js';
 import { buildTelegramPost } from './telegram-format.js';
 
 const log = childLogger({ module: 'draft-service' });
@@ -89,6 +90,11 @@ export class DraftService {
 
     const { analysis } = outcome;
 
+    // Категория приводится к справочнику по той же причине, что и при
+    // классификации: на неё ссылается внешний ключ и в черновике, и в
+    // событии, а модель называет её свободным словом.
+    const categorySlug = resolveCategorySlug(analysis.category, categories);
+
     // Собираем итоговый текст поста ровно в том виде, в каком он уйдёт
     // в канал: именно этот текст показывается в preview и проверяется
     // перед отправкой.
@@ -118,7 +124,7 @@ export class DraftService {
       title: analysis.title,
       body: analysis.summary,
       telegramText,
-      categorySlug: analysis.category,
+      categorySlug,
       importance: analysis.importance as Importance,
       locationText: analysis.location,
       witnessQuotes: analysis.witnessQuotes.map((q) => q.text),
@@ -144,7 +150,7 @@ export class DraftService {
     await this.events.update(eventId, {
       title: analysis.title,
       summary: analysis.summary,
-      categorySlug: analysis.category,
+      categorySlug,
       importance: analysis.importance as Importance,
       occurredAt: parseEventTime(analysis.eventTime) ?? event.occurredAt,
       locationText: analysis.location,

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { IMPORTANCE_LEVELS } from '@nnm/shared';
 import type { AppConfig } from '../../config/env.js';
+import { AiProcessor } from '../../modules/ai/processor.js';
 import type { Database } from '../../db/pool.js';
 import { ProfanityGuard } from '../../modules/profanity/index.js';
 import { AUDIT_ACTIONS, AuditRepository } from '../../repositories/audit.js';
@@ -98,6 +99,10 @@ export default async function settingsRoutes(
       runtime: {
         aiProvider: config.AI_PROVIDER,
         aiModel: config.AI_MODEL,
+        // Причина, по которой модель не используется, показывается рядом
+        // с провайдером: иначе настроенный, но нерабочий провайдер
+        // выглядит в интерфейсе так же, как работающий.
+        aiReason: new AiProcessor(config, []).unavailableReason(),
         embeddingProvider: config.EMBEDDING_PROVIDER,
         transcriptionProvider: config.TRANSCRIPTION_PROVIDER,
         telegramIngestMode: config.TELEGRAM_INGEST_MODE,

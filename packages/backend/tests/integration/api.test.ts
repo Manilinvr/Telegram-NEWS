@@ -350,6 +350,55 @@ describe('Диагностика', () => {
     // Автопубликация в MVP выключена.
     expect(body.autoPublishEnabled).toBe(false);
   });
+
+  it('называет причину, по которой модель не используется', async () => {
+    const { cookie } = await login(app);
+    const response = await app.inject({ method: 'GET', url: '/api/diagnostics', headers: { cookie } });
+
+    // В тестах провайдер — mock. Важно, что причина названа словами:
+    // по одному флагу «не настроено» нельзя понять, что именно проверять.
+    expect(response.json()).toMatchObject({ ai: { configured: false } });
+    expect(String(response.json().ai.reason)).toMatch(/mock/);
+  });
+
+  it('проверка связи с моделью не обращается в сеть, пока провайдер mock', async () => {
+    const { cookie, csrfToken } = await login(app);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/diagnostics/ai-check',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: false, configuredProvider: 'mock' });
+  });
+
+  it('закрывает разом повторы одной и той же ошибки', async () => {
+    const { cookie, csrfToken } = await login(app);
+    await db.query(
+      `INSERT INTO processing_errors (stage, entity_type, message)
+       VALUES ('NORMALIZATION', 'source_post', $1), ('NORMALIZATION', 'source_post', $1),
+              ('INGESTION', 'source', 'HTTP 502')`,
+      ['insert or update on table "source_posts" violates foreign key constraint'],
+    );
+
+    const before = await app.inject({ method: 'GET', url: '/api/diagnostics/errors', headers: { cookie } });
+    expect(before.json().errors.length).toBeGreaterThanOrEqual(3);
+
+    const resolved = await app.inject({
+      method: 'POST',
+      url: '/api/diagnostics/errors/resolve-all',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: { stage: 'NORMALIZATION' },
+    });
+    expect(resolved.json()).toMatchObject({ ok: true, resolved: 2 });
+
+    // Ошибка другого этапа остаётся: закрывается только то, что выбрано.
+    const after = await app.inject({ method: 'GET', url: '/api/diagnostics/errors', headers: { cookie } });
+    expect(after.json().errors.some((e: { stage: string }) => e.stage === 'INGESTION')).toBe(true);
+    expect(after.json().errors.some((e: { stage: string }) => e.stage === 'NORMALIZATION')).toBe(false);
+  });
 });
 
 describe('Источники', () => {

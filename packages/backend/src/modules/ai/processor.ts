@@ -92,6 +92,71 @@ export class AiProcessor {
     return Boolean(this.provider?.isAvailable());
   }
 
+  /**
+   * Почему модель не используется — словами, а не флагом.
+   *
+   * Настройка модели делается переменными окружения на хостинге, где
+   * опечатку не видно: система продолжает работать по правилам и внешне
+   * выглядит исправной. Причина поэтому называется явно.
+   */
+  unavailableReason(): string | null {
+    if (this.config.AI_PROVIDER === 'mock') {
+      return 'AI_PROVIDER=mock — разбор идёт по правилам, модель не подключена.';
+    }
+    if (this.config.AI_PROVIDER === 'anthropic' && !this.config.ANTHROPIC_API_KEY) {
+      return 'Не задан ANTHROPIC_API_KEY.';
+    }
+    if (this.config.AI_PROVIDER === 'openai-compatible' && !this.config.AI_BASE_URL) {
+      return 'Не задан AI_BASE_URL — адрес службы с интерфейсом OpenAI.';
+    }
+    return this.provider?.isAvailable() ? null : 'Провайдер модели недоступен.';
+  }
+
+  /**
+   * Живая проверка связи с моделью.
+   *
+   * Отличается от `isAiAvailable` принципиально: там проверяется только
+   * наличие настроек, здесь — что служба отвечает этим ключом и знает эту
+   * модель. Неверный ключ, исчерпанный лимит и опечатка в названии модели
+   * видны лишь в ответе службы, а иначе обнаруживались бы молча — разбором
+   * по правилам вместо модели.
+   */
+  async check(): Promise<{ ok: boolean; provider: string; model: string | null; reason?: string; ms?: number }> {
+    const reason = this.unavailableReason();
+    if (reason || !this.provider) {
+      return {
+        ok: false,
+        provider: this.providerName,
+        model: this.provider?.model ?? null,
+        reason: reason ?? 'Провайдер модели не настроен.',
+      };
+    }
+
+    const started = Date.now();
+    try {
+      const answer = await this.provider.complete({
+        system: 'Отвечай одним словом.',
+        user: 'Ответь словом: готово',
+        maxTokens: 16,
+      });
+      return {
+        ok: answer.trim().length > 0,
+        provider: this.provider.name,
+        model: this.provider.model,
+        ms: Date.now() - started,
+        ...(answer.trim().length > 0 ? {} : { reason: 'Служба вернула пустой ответ.' }),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        provider: this.provider.name,
+        model: this.provider.model,
+        ms: Date.now() - started,
+        reason: (error as Error).message,
+      };
+    }
+  }
+
   /** Быстрая классификация одной публикации. */
   async classifyPost(input: {
     text: string;
