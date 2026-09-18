@@ -1,7 +1,9 @@
-import type {
-  AiEventAnalysis,
-  AiPostClassification,
-  ProfanityReport,
+import {
+  DEFAULT_EDITORIAL_STYLE,
+  type AiEventAnalysis,
+  type AiPostClassification,
+  type EditorialStyle,
+  type ProfanityReport,
 } from '@nnm/shared';
 import type { AppConfig } from '../../config/env.js';
 import { childLogger } from '../../lib/logger.js';
@@ -18,7 +20,7 @@ import {
 } from './provider.js';
 import {
   CLASSIFICATION_SYSTEM_PROMPT,
-  EDITORIAL_SYSTEM_PROMPT,
+  buildEditorialSystemPrompt,
   buildClassificationUserMessage,
   buildEditorialUserMessage,
 } from './prompts.js';
@@ -72,6 +74,7 @@ export class AiProcessor {
   private readonly provider: AiProvider | null;
   private readonly heuristic: HeuristicAnalyzer;
   private readonly profanity: ProfanityGuard;
+  private style: EditorialStyle = DEFAULT_EDITORIAL_STYLE;
 
   constructor(
     private readonly config: AppConfig,
@@ -82,6 +85,23 @@ export class AiProcessor {
     this.heuristic = new HeuristicAnalyzer(categories);
     this.profanity = profanity ?? new ProfanityGuard();
     this.provider = provider ?? makeProvider(config);
+  }
+
+  /**
+   * Задать редакционный стиль из настроек.
+   *
+   * Отдельным вызовом, а не параметром конструктора: стиль нужен только
+   * при подготовке черновика, а классификация и проверка связи обходятся
+   * без него — иначе каждое место создания процессора было бы обязано
+   * ходить в базу за настройкой, которая ему не нужна.
+   */
+  setStyle(style: EditorialStyle): this {
+    this.style = style;
+    return this;
+  }
+
+  get editorialStyle(): EditorialStyle {
+    return this.style;
   }
 
   get providerName(): string {
@@ -317,7 +337,7 @@ export class AiProcessor {
 
     try {
       const rawText = await this.provider.complete({
-        system: EDITORIAL_SYSTEM_PROMPT,
+        system: buildEditorialSystemPrompt(this.style),
         user,
       });
       const analysis = parseEventAnalysis(rawText);

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { IMPORTANCE_LEVELS } from '@nnm/shared';
+import { editorialStyleSchema, IMPORTANCE_LEVELS } from '@nnm/shared';
 import type { AppConfig } from '../../config/env.js';
 import { AiProcessor } from '../../modules/ai/processor.js';
 import type { Database } from '../../db/pool.js';
@@ -153,6 +153,34 @@ export default async function settingsRoutes(
       if (!check.ok) {
         return reply.code(401).send({ error: 'CONFIRMATION_FAILED', message: 'Пароль указан неверно.' });
       }
+    }
+
+    // Редакционный стиль проверяется схемой: в настройку тона нельзя
+    // передать произвольную структуру, а свободные указания ограничены по
+    // длине — они уходят в промпт и не должны вытеснять правила.
+    if (params.data.key === 'editorial') {
+      const parsed = editorialStyleSchema.safeParse(body.data.value);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: 'VALIDATION_ERROR',
+          message: parsed.error.issues[0]?.message ?? 'Некорректные настройки стиля.',
+        });
+      }
+      await settings.setSetting(params.data.key, parsed.data, {
+        updatedBy: request.user!.id,
+        isCritical: false,
+      });
+
+      await audit.log({
+        userId: request.user!.id,
+        action: AUDIT_ACTIONS.SETTINGS_UPDATED,
+        entityType: 'settings',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'] ?? null,
+        details: { key: params.data.key, critical: false },
+      });
+
+      return { ok: true, key: params.data.key };
     }
 
     // Настройки фильтра лексики проверяем отдельной схемой: сюда нельзя
