@@ -51,6 +51,31 @@ export interface AnalysisOutcome {
   /** Сырой ответ модели — сохраняется для расследования. */
   raw: unknown;
   warnings: string[];
+  /**
+   * Чем именно закончилось обращение к модели, если оно не удалось.
+   * Нужно, чтобы в журнале стояла причина, а не «что-то пошло не так».
+   */
+  failure: ModelFailure | null;
+}
+
+/** Неудачное обращение к модели с причиной. */
+export interface ModelFailure {
+  ok: false;
+  kind: 'unavailable' | 'schema' | 'unknown';
+  reason: string;
+}
+
+type ModelAttempt = { ok: true; analysis: AiEventAnalysis; raw: unknown } | ModelFailure;
+
+/** Причина отказа словами — для журнала и интерфейса. */
+export function describeFailure(failure: ModelFailure): string {
+  if (failure.kind === 'schema') {
+    return `Ответ модели не соответствует ожидаемой структуре: ${failure.reason}`;
+  }
+  if (failure.kind === 'unavailable') {
+    return `Модель не ответила: ${failure.reason}`;
+  }
+  return `Сбой обращения к модели: ${failure.reason}`;
 }
 
 /**
@@ -247,6 +272,7 @@ export class AiProcessor {
     let analysis: AiEventAnalysis | null = null;
     let producedBy: 'AI' | 'HEURISTIC' = 'HEURISTIC';
     let raw: unknown = null;
+    let failure: ModelFailure | null = null;
 
     if (this.provider?.isAvailable()) {
       const attempt = await this.callModel(
@@ -255,12 +281,13 @@ export class AiProcessor {
         input.categories,
         input.existingLocation ?? null,
       );
-      if (attempt) {
+      if (attempt.ok) {
         analysis = attempt.analysis;
         raw = attempt.raw;
         producedBy = 'AI';
       } else {
-        warnings.push('Модель недоступна или вернула некорректный ответ — разбор выполнен по правилам.');
+        failure = attempt;
+        warnings.push(describeFailure(attempt));
       }
     }
 
@@ -289,7 +316,7 @@ export class AiProcessor {
           'Перефразируй нейтрально. Маскировать слова звёздочками нельзя.',
       );
 
-      if (retry) {
+      if (retry.ok) {
         const retryReport = this.checkAnalysis(retry.analysis);
         if (retryReport.allowed) {
           analysis = retry.analysis;
@@ -332,18 +359,28 @@ export class AiProcessor {
       regenerated,
       raw,
       warnings,
+      failure,
     };
   }
 
-  /** Один вызов модели с разбором и валидацией схемы. */
+  /**
+   * Один вызов модели с разбором и валидацией схемы.
+   *
+   * При неудаче возвращается причина, а не просто null: «модель не
+   * ответила» и «ответ не по схеме» — разные неполадки с разными
+   * действиями, и раньше их было не отличить ни в журнале, ни в
+   * интерфейсе.
+   */
   private async callModel(
     posts: EventAnalysisInput['posts'],
     transcripts: EventAnalysisInput['transcripts'],
     categories: Array<{ slug: string; title: string }>,
     existingLocation: string | null,
     extraInstruction?: string,
-  ): Promise<{ analysis: AiEventAnalysis; raw: unknown } | null> {
-    if (!this.provider) return null;
+  ): Promise<ModelAttempt> {
+    if (!this.provider) {
+      return { ok: false, kind: 'unavailable', reason: 'Провайдер модели не настроен.' };
+    }
 
     const user =
       buildEditorialUserMessage({ posts, transcripts, categories, existingLocation }) +
@@ -363,16 +400,20 @@ export class AiProcessor {
         analysis.category = 'other';
       }
 
-      return { analysis, raw: rawText };
+      return { ok: true, analysis, raw: rawText };
     } catch (error) {
+      const message = (error as Error).message;
+
       if (error instanceof AiResponseError) {
-        log.warn({ err: error.message }, 'Ответ модели не прошёл валидацию схемы');
-      } else if (error instanceof AiUnavailableError) {
-        log.warn({ err: error.message }, 'Модель недоступна');
-      } else {
-        log.error({ err: error }, 'Непредвиденная ошибка обращения к модели');
+        log.warn({ err: message }, 'Ответ модели не прошёл валидацию схемы');
+        return { ok: false, kind: 'schema', reason: message };
       }
-      return null;
+      if (error instanceof AiUnavailableError) {
+        log.warn({ err: message }, 'Модель недоступна');
+        return { ok: false, kind: 'unavailable', reason: message };
+      }
+      log.error({ err: error }, 'Непредвиденная ошибка обращения к модели');
+      return { ok: false, kind: 'unknown', reason: message };
     }
   }
 
