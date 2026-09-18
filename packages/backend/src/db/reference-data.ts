@@ -14,6 +14,7 @@
  * Поэтому справочник дозаполняется при старте. Существующие записи не
  * трогаются: правки, сделанные в настройках, сохраняются.
  */
+import { DEFAULT_EDITORIAL_STYLE, EDITORIAL_SETTING_KEY } from '@nnm/shared';
 import type { AppConfig } from '../config/env.js';
 import type { Database } from './pool.js';
 import { CategoriesRepository } from '../repositories/categories.js';
@@ -51,6 +52,9 @@ export async function ensureReferenceData(
     // канал только после ручного подтверждения.
     ['moderation', { requireManualApproval: true, autoPublish: false }, true],
     ['feed', { defaultPeriod: '24h', defaultSort: 'newest', pageSize: 50 }, false],
+    // Редакционный стиль: без записи интерфейс показывал бы пустую форму,
+    // хотя разбор уже идёт со значениями по умолчанию.
+    [EDITORIAL_SETTING_KEY, DEFAULT_EDITORIAL_STYLE, false],
   ];
 
   for (const [key, value, critical] of defaults) {

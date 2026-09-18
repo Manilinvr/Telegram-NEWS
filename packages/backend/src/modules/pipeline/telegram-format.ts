@@ -20,6 +20,15 @@ export interface TelegramPostInput {
   sources: Array<{ title: string; url?: string | null }>;
   /** Пост с медиа ограничен длиной подписи, а не длиной сообщения. */
   hasMedia?: boolean;
+  /**
+   * Оформление из редакционных настроек.
+   *
+   * Перечень источников сюда не входит намеренно: его нельзя отключить
+   * настройкой — система не выдаёт переработанный чужой материал за свой.
+   */
+  useEmoji?: boolean;
+  /** Подпись канала в конце поста. Пусто — без подписи. */
+  signature?: string | null;
 }
 
 export function buildTelegramPost(input: TelegramPostInput): string {
@@ -35,17 +44,23 @@ export function buildTelegramPost(input: TelegramPostInput): string {
   blocks.push(title);
   if (body) blocks.push(body);
 
+  // Значки — оформление, а не содержание: при выключенных эмодзи те же
+  // сведения остаются в посте, но названы словами.
+  const emoji = input.useEmoji !== false;
+
   const meta: string[] = [];
-  if (input.location) meta.push(`📍 ${input.location.trim()}`);
+  if (input.location) meta.push(`${emoji ? '📍' : 'Место:'} ${input.location.trim()}`);
   if (input.eventTime) {
     const formatted = formatMoscowTime(input.eventTime);
-    if (formatted) meta.push(`🕒 ${formatted}`);
+    if (formatted) meta.push(`${emoji ? '🕒' : 'Время:'} ${formatted}`);
   }
   if (meta.length > 0) blocks.push(meta.join('\n'));
 
   const quotes = (input.witnessQuotes ?? []).filter((quote) => quote.trim().length > 0);
   if (quotes.length > 0) {
-    blocks.push(`🎥 Что говорят очевидцы: ${quotes.map((q) => `«${q.trim()}»`).join(' ')}`);
+    blocks.push(
+      `${emoji ? '🎥 ' : ''}Что говорят очевидцы: ${quotes.map((q) => `«${q.trim()}»`).join(' ')}`,
+    );
   }
 
   // Источники собираются без повторов и в стабильном порядке.
@@ -54,31 +69,35 @@ export function buildTelegramPost(input: TelegramPostInput): string {
     blocks.push(`Источник:\n${sources.map((s) => s.title).join(', ')}`);
   }
 
+  const signature = (input.signature ?? '').trim();
+  if (signature) blocks.push(signature);
+
   const text = blocks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 
-  return text.length <= limit ? text : trimToLimit(text, limit, sources);
+  // Подпись защищается от обрезки наравне с источниками: пост без неё
+  // выглядит чужим в ленте канала.
+  const tail = [...(sources.length > 0 ? [1] : []), ...(signature ? [1] : [])].length;
+
+  return text.length <= limit ? text : trimToLimit(text, limit, tail);
 }
 
 /**
  * Укоротить пост, не потеряв обязательные части.
  *
- * Обрезается основной текст; заголовок, место, время и блок источников
- * сохраняются — без них пост теряет смысл или нарушает атрибуцию.
+ * Обрезается основной текст; заголовок, место, время, блок источников и
+ * подпись сохраняются — без них пост теряет смысл или нарушает атрибуцию.
  */
-function trimToLimit(
-  text: string,
-  limit: number,
-  sources: Array<{ title: string }>,
-): string {
+function trimToLimit(text: string, limit: number, tailBlocks: number): string {
   const blocks = text.split('\n\n');
-  const sourceBlock = sources.length > 0 ? blocks.pop() ?? '' : '';
-  const reserved = sourceBlock.length + 2;
+  const tail = tailBlocks > 0 ? blocks.splice(-tailBlocks) : [];
+  const tailText = tail.join('\n\n');
+  const reserved = tailText.length + (tailText ? 2 : 0);
 
   let result = blocks.join('\n\n');
   if (result.length > limit - reserved) {
     result = `${result.slice(0, Math.max(0, limit - reserved - 1)).trimEnd()}…`;
   }
-  return sourceBlock ? `${result}\n\n${sourceBlock}` : result;
+  return tailText ? `${result}\n\n${tailText}` : result;
 }
 
 function dedupeSources(

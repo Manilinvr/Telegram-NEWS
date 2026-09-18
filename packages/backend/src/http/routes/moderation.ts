@@ -6,6 +6,7 @@ import type { Database } from '../../db/pool.js';
 import { AiProcessor } from '../../modules/ai/processor.js';
 import { ModerationService } from '../../modules/moderation/service.js';
 import { DraftService } from '../../modules/pipeline/draft-service.js';
+import { loadEditorialStyle } from '../../modules/ai/style.js';
 import { buildTelegramPost } from '../../modules/pipeline/telegram-format.js';
 import { PublishingService } from '../../modules/publishing/service.js';
 import { ProfanityGuard } from '../../modules/profanity/index.js';
@@ -216,6 +217,10 @@ export default async function moderationRoutes(
     const title = body.success ? (body.data.title ?? draft?.title ?? event.title) : (draft?.title ?? event.title);
     const text = body.success ? (body.data.body ?? draft?.body ?? event.summary) : (draft?.body ?? event.summary);
 
+    // Предпросмотр собирается с теми же настройками оформления, что и
+    // публикация: иначе модератор утверждает не тот текст, который выйдет.
+    const style = await loadEditorialStyle(db);
+
     const telegramText = buildTelegramPost({
       title,
       body: text,
@@ -224,6 +229,8 @@ export default async function moderationRoutes(
       witnessQuotes: body.success ? (body.data.witnessQuotes ?? draft?.witnessQuotes ?? []) : draft?.witnessQuotes ?? [],
       sources: sources.map((s) => ({ title: s.sourceTitle, url: s.originalUrl })),
       hasMedia: false,
+      useEmoji: style.useEmoji,
+      signature: style.signature,
     });
 
     // Предпросмотр тоже проверяется: модератор должен сразу видеть, что

@@ -9,6 +9,7 @@ import { EventsRepository } from '../../repositories/events.js';
 import { ModerationRepository } from '../../repositories/moderation.js';
 import { OpsRepository } from '../../repositories/ops.js';
 import type { AiProcessor } from '../ai/processor.js';
+import { loadEditorialStyle } from '../ai/style.js';
 import { ProfanityGuard } from '../profanity/index.js';
 import { TranscriptionService } from '../transcription/service.js';
 import { resolveCategorySlug } from './category-slug.js';
@@ -73,6 +74,12 @@ export class DraftService {
     const transcripts = await this.transcription.forEvent(eventId);
     const categories = await this.categories.list();
 
+    // Стиль читается здесь и применяется в двух местах сразу: к промпту
+    // (тон и длина) и к сборке поста (значки и подпись). Так настройка
+    // остаётся одной, а не расползается по вызывающему коду.
+    const style = await loadEditorialStyle(this.db);
+    this.ai.setStyle(style);
+
     const outcome = await this.ai.analyzeEvent({
       posts: postRows.map((row, index) => ({
         index,
@@ -107,6 +114,8 @@ export class DraftService {
       witnessQuotes: analysis.witnessQuotes.map((quote) => quote.text),
       sources: sources.map((source) => ({ title: source.sourceTitle, url: source.originalUrl })),
       hasMedia,
+      useEmoji: style.useEmoji,
+      signature: style.signature,
     });
 
     // Итоговый текст проверяется ещё раз: сборка добавила заголовок,
