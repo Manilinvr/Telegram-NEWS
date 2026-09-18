@@ -174,8 +174,22 @@ const envSchema = z
     VK_ACCESS_TOKEN: optionalStr,
     VK_API_VERSION: z.string().default('5.199'),
 
-    AI_PROVIDER: z.enum(['anthropic', 'mock']).default('mock'),
+    /**
+     * Откуда берётся разбор новостей.
+     *
+     *  • mock — по правилам, без модели: текст источника очищается, но
+     *    не переписывается;
+     *  • anthropic — модель Anthropic;
+     *  • openai-compatible — любая служба с интерфейсом OpenAI, включая
+     *    бесплатные тарифы и локальные модели. Адрес задаётся в
+     *    AI_BASE_URL, название модели — в AI_MODEL.
+     */
+    AI_PROVIDER: z.enum(['anthropic', 'openai-compatible', 'mock']).default('mock'),
     ANTHROPIC_API_KEY: optionalStr,
+    /** Адрес службы с интерфейсом OpenAI, до /chat/completions. */
+    AI_BASE_URL: optionalStr,
+    /** Ключ этой службы. Локальной модели ключ обычно не нужен. */
+    AI_API_KEY: optionalStr,
     AI_MODEL: z.string().default('claude-opus-5'),
     AI_MAX_OUTPUT_TOKENS: int(4096),
     AI_TIMEOUT_MS: int(60_000),
@@ -255,6 +269,15 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ['VOYAGE_API_KEY'],
         message: 'Для EMBEDDING_PROVIDER=voyage нужен VOYAGE_API_KEY.',
+      });
+    }
+
+    if (value.AI_PROVIDER === 'openai-compatible' && !value.AI_BASE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AI_BASE_URL'],
+        message:
+          'Для AI_PROVIDER=openai-compatible нужен AI_BASE_URL — адрес службы, например https://api.groq.com/openai/v1.',
       });
     }
 

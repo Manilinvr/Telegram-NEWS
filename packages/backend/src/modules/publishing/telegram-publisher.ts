@@ -1,4 +1,7 @@
 import { TELEGRAM_MEDIA_GROUP_LIMIT } from '@nnm/shared';
+
+/** Предел подписи к вложению в Telegram. В обычном сообщении — 4096. */
+const TELEGRAM_CAPTION_LIMIT = 1024;
 import type { AppConfig } from '../../config/env.js';
 import { childLogger } from '../../lib/logger.js';
 import { safeUrl } from '../ingestion/http.js';
@@ -159,6 +162,16 @@ export class TelegramPublisher {
    * первого элемента — остальные подписи он игнорирует.
    */
   private async sendMedia(text: string, media: PublishMedia[]): Promise<string | null> {
+    // Telegram разрешает 1024 символа в подписи к вложению и 4096 в
+    // обычном сообщении. Длинный текст в подписи Telegram обрезает
+    // молча, поэтому при превышении вложение и текст уходят раздельно:
+    // сначала фотографии без подписи, следом полный текст сообщением.
+    // Так новость доходит целиком, а не до 1024-го символа.
+    if (text.length > TELEGRAM_CAPTION_LIMIT) {
+      await this.sendMediaOnly(media);
+      return this.sendMessage(text);
+    }
+
     const items = media.slice(0, TELEGRAM_MEDIA_GROUP_LIMIT);
     const form = new FormData();
     form.set('chat_id', this.channel);
@@ -199,6 +212,39 @@ export class TelegramPublisher {
 
     if (!body.ok) throw new Error(body.description ?? 'Telegram отклонил медиа-группу');
     return body.result?.[0] ? String(body.result[0].message_id) : null;
+  }
+
+  /** Отправить вложения без подписи — текст уйдёт отдельным сообщением. */
+  private async sendMediaOnly(media: PublishMedia[]): Promise<void> {
+    const items = media.slice(0, TELEGRAM_MEDIA_GROUP_LIMIT);
+    if (items.length === 0) return;
+
+    const form = new FormData();
+    form.set('chat_id', this.channel);
+
+    if (items.length === 1) {
+      const item = items[0] as PublishMedia;
+      form.set(item.type === 'VIDEO' ? 'video' : 'photo', toBlob(item), item.filename);
+      const body = await this.callForm<{ ok: boolean; description?: string }>(
+        item.type === 'VIDEO' ? 'sendVideo' : 'sendPhoto',
+        form,
+      );
+      if (!body.ok) throw new Error(body.description ?? 'Telegram отклонил медиа');
+      return;
+    }
+
+    const group = items.map((item, index) => {
+      const part = `file${index}`;
+      form.set(part, toBlob(item), item.filename);
+      return {
+        type: item.type === 'VIDEO' ? 'video' : 'photo',
+        media: `attach://${part}`,
+      };
+    });
+    form.set('media', JSON.stringify(group));
+
+    const body = await this.callForm<{ ok: boolean; description?: string }>('sendMediaGroup', form);
+    if (!body.ok) throw new Error(body.description ?? 'Telegram отклонил медиа-группу');
   }
 
   /** Вызов с передачей файлов: тело запроса — multipart, не JSON. */

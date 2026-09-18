@@ -7,6 +7,7 @@ import type { AppConfig } from '../../config/env.js';
 import { childLogger } from '../../lib/logger.js';
 import { ProfanityGuard } from '../profanity/index.js';
 import { AnthropicProvider } from './anthropic.js';
+import { OpenAiCompatibleProvider } from './openai-compatible.js';
 import { HeuristicAnalyzer, type HeuristicCategory } from './heuristic.js';
 import {
   AiResponseError,
@@ -80,9 +81,7 @@ export class AiProcessor {
   ) {
     this.heuristic = new HeuristicAnalyzer(categories);
     this.profanity = profanity ?? new ProfanityGuard();
-    this.provider =
-      provider ??
-      (config.AI_PROVIDER === 'anthropic' ? new AnthropicProvider(config) : null);
+    this.provider = provider ?? makeProvider(config);
   }
 
   get providerName(): string {
@@ -290,5 +289,18 @@ export class AiProcessor {
       sourceClaims: analysis.sourceClaims.map((claim) => claim.claim),
       quotes: analysis.witnessQuotes.map((quote) => quote.text),
     });
+  }
+}
+
+/** Выбор провайдера по конфигурации. */
+function makeProvider(config: AppConfig): AiProvider | null {
+  switch (config.AI_PROVIDER) {
+    case 'anthropic':
+      return new AnthropicProvider(config);
+    case 'openai-compatible':
+      return new OpenAiCompatibleProvider(config);
+    default:
+      // mock — разбор по правилам, без обращения к модели.
+      return null;
   }
 }

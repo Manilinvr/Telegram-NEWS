@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { createServer } from 'node:http';
 import { writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../../src/config/env.js';
 import { buildSslOptions } from '../../src/db/pool.js';
 import { AdapterRegistry } from '../../src/modules/ingestion/registry.js';
+import { OpenAiCompatibleProvider } from '../../src/modules/ai/openai-compatible.js';
 
 /**
  * Конфигурация — единственное место, где установка соприкасается
@@ -138,5 +140,78 @@ describe('Режимы сбора Telegram', () => {
     expect(() => loadConfig({ ...base, TELEGRAM_INGEST_MODE: 'bot' })).toThrow(
       /TELEGRAM_BOT_TOKEN/,
     );
+  });
+});
+
+describe('Бесплатный разбор новостей через службу с интерфейсом OpenAI', () => {
+  it('провайдер openai-compatible требует адрес службы', () => {
+    expect(() => loadConfig({ ...base, AI_PROVIDER: 'openai-compatible' })).toThrow(/AI_BASE_URL/);
+  });
+
+  it('с адресом конфигурация принимается', () => {
+    const config = loadConfig({
+      ...base,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'https://api.groq.com/openai/v1',
+      AI_MODEL: 'llama-3.3-70b-versatile',
+    });
+    expect(config.AI_PROVIDER).toBe('openai-compatible');
+    expect(config.AI_BASE_URL).toBe('https://api.groq.com/openai/v1');
+  });
+
+  it('обращается к службе и возвращает её ответ', async () => {
+    const seen: { url?: string; auth?: string; body?: Record<string, unknown> } = {};
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c as Buffer));
+      req.on('end', () => {
+        seen.url = req.url ?? '';
+        seen.auth = req.headers.authorization;
+        seen.body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(4713, '127.0.0.1', () => r()));
+
+    try {
+      const provider = new OpenAiCompatibleProvider(
+        loadConfig({
+          ...base,
+          AI_PROVIDER: 'openai-compatible',
+          AI_BASE_URL: 'http://127.0.0.1:4713',
+          AI_API_KEY: 'test-key',
+          AI_MODEL: 'free-model',
+        }),
+      );
+      expect(provider.isAvailable()).toBe(true);
+
+      const text = await provider.complete({ system: 'ты редактор', user: 'перепиши' });
+      expect(text).toBe('{"ok":true}');
+      expect(seen.url).toBe('/chat/completions');
+      expect(seen.auth).toBe('Bearer test-key');
+      expect(seen.body?.model).toBe('free-model');
+    } finally {
+      server.close();
+    }
+  });
+
+  it('объясняет отказ службы, а не прячет его за кодом', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(429, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'Rate limit exceeded' } }));
+    });
+    await new Promise<void>((r) => server.listen(4714, '127.0.0.1', () => r()));
+
+    try {
+      const provider = new OpenAiCompatibleProvider(
+        loadConfig({ ...base, AI_PROVIDER: 'openai-compatible', AI_BASE_URL: 'http://127.0.0.1:4714' }),
+      );
+      await expect(provider.complete({ system: 's', user: 'u' })).rejects.toThrow(
+        /429.*Rate limit exceeded/s,
+      );
+    } finally {
+      server.close();
+    }
   });
 });
