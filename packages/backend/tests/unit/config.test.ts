@@ -181,6 +181,42 @@ describe('Бесплатный разбор новостей через служ
     expect(config.AI_API_KEY).toBe('sk-deepseek');
   });
 
+  it('адрес без схемы отклоняется при запуске, а не на каждом запросе', () => {
+    // Именно так выглядит потерянный при копировании «https:»: служба
+    // отвечала «Failed to parse URL», установка считалась рабочей и
+    // молча разбирала новости правилами.
+    expect(() =>
+      loadConfig({
+        ...base,
+        AI_PROVIDER: 'openai-compatible',
+        AI_BASE_URL: '//generativelanguage.googleapis.com/v1beta/openai',
+        AI_MODEL: 'gemini-3-flash-lite',
+      }),
+    ).toThrow(/http:\/\/ или https:\/\//);
+  });
+
+  it('адрес с /chat/completions отклоняется: этот путь добавляется сам', () => {
+    expect(() =>
+      loadConfig({
+        ...base,
+        AI_PROVIDER: 'openai-compatible',
+        AI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        AI_MODEL: 'gemini-3-flash-lite',
+      }),
+    ).toThrow(/БЕЗ \/chat\/completions/);
+  });
+
+  it('адрес Gemini принимается', () => {
+    const config = loadConfig({
+      ...base,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      AI_API_KEY: 'AIza-test',
+      AI_MODEL: 'gemini-3-flash-lite',
+    });
+    expect(config.AI_BASE_URL).toBe('https://generativelanguage.googleapis.com/v1beta/openai');
+  });
+
   it('обращается к службе и возвращает её ответ', async () => {
     const seen: { url?: string; auth?: string; body?: Record<string, unknown> } = {};
     const server = createServer((req, res) => {
