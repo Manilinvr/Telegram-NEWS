@@ -402,19 +402,13 @@ describe('Диагностика', () => {
 });
 
 describe('Переключатель автопубликации', () => {
-  it('без пароля не включается', async () => {
-    const { cookie, csrfToken } = await login(app);
+  it('без входа не включается вовсе', async () => {
     const response = await app.inject({
       method: 'PUT',
       url: '/api/settings/publishing',
-      headers: { cookie, 'x-csrf-token': csrfToken },
       payload: { value: { autoPublish: true, minConfidence: 0.85, delayMinutes: 10 } },
     });
-
-    // Раздел критичный: включение отправки в канал без человека требует
-    // повторного ввода пароля — сессия могла остаться на чужом устройстве.
     expect(response.statusCode).toBe(401);
-    expect(response.json().error).toBe('CONFIRMATION_REQUIRED');
   });
 
   it('с паролем включается и запоминает, кто это сделал', async () => {
@@ -461,6 +455,21 @@ describe('Переключатель автопубликации', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toBe('VALIDATION_ERROR');
+  });
+
+  it('без подтверждения паролем настройка не меняется, пока подтверждение включено', async () => {
+    const { cookie, csrfToken } = await login(app);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/settings/publishing',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+      payload: { value: { autoPublish: true, minConfidence: 0.85, delayMinutes: 10 } },
+    });
+
+    // По умолчанию подтверждение включено. Отключается оно переменной
+    // установки SETTINGS_REQUIRE_PASSWORD=false, а не запросом.
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe('CONFIRMATION_REQUIRED');
   });
 
   it('выключение стирает запись о включившем', async () => {

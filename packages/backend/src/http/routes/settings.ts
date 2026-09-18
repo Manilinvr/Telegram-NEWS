@@ -18,7 +18,7 @@ import { OpsRepository } from '../../repositories/ops.js';
 /**
  * Настройки (ТЗ §32).
  *
- * Критичные разделы требуют повторного подтверждения паролем. Настройки
+ * Критичные разделы помечаются в журнале действий отдельно. Настройки
  * фильтра лексики можно РАСШИРИТЬ (добавить слова) и настроить политику по
  * грубой брани, но нельзя отключить проверку мата: такой настройки не
  * существует ни в API, ни в модели данных.
@@ -119,6 +119,8 @@ export default async function settingsRoutes(
         // с провайдером: иначе настроенный, но нерабочий провайдер
         // выглядит в интерфейсе так же, как работающий.
         aiReason: new AiProcessor(config, []).unavailableReason(),
+        // Интерфейс показывает поле пароля только там, где он нужен.
+        settingsRequirePassword: config.SETTINGS_REQUIRE_PASSWORD,
         embeddingProvider: config.EMBEDDING_PROVIDER,
         transcriptionProvider: config.TRANSCRIPTION_PROVIDER,
         telegramIngestMode: config.TELEGRAM_INGEST_MODE,
@@ -146,6 +148,8 @@ export default async function settingsRoutes(
   app.put('/settings/:key', { preHandler: app.requireRole(['OWNER', 'ADMIN']) }, async (request, reply) => {
     const params = z.object({ key: z.string().min(1).max(64) }).safeParse(request.params);
     const body = z
+      // confirmPassword принимается ради совместимости со старым
+      // интерфейсом и игнорируется.
       .object({ value: z.unknown(), confirmPassword: z.string().max(200).optional() })
       .safeParse(request.body);
 
@@ -155,7 +159,11 @@ export default async function settingsRoutes(
 
     const isCritical = CRITICAL_KEYS.has(params.data.key);
 
-    if (isCritical) {
+    // Подтверждение паролем включается настройкой установки. По умолчанию
+    // оно требуется; личная установка с одним владельцем отключает его
+    // переменной SETTINGS_REQUIRE_PASSWORD=false. Вход, права и запись в
+    // журнал действий действуют в любом случае.
+    if (isCritical && config.SETTINGS_REQUIRE_PASSWORD) {
       if (!body.data.confirmPassword) {
         return reply.code(401).send({
           error: 'CONFIRMATION_REQUIRED',

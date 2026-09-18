@@ -143,6 +143,20 @@ describe('Режимы сбора Telegram', () => {
   });
 });
 
+describe('Подтверждение паролем при изменении настроек', () => {
+  it('по умолчанию требуется', () => {
+    expect(loadConfig({ ...base }).SETTINGS_REQUIRE_PASSWORD).toBe(true);
+  });
+
+  it('отключается явно — для личной установки с одним владельцем', () => {
+    // Вход, права и запись в журнал действий при этом остаются: убирается
+    // только повторный ввод пароля на каждую правку настройки.
+    expect(loadConfig({ ...base, SETTINGS_REQUIRE_PASSWORD: 'false' }).SETTINGS_REQUIRE_PASSWORD).toBe(
+      false,
+    );
+  });
+});
+
 describe('Бесплатный разбор новостей через службу с интерфейсом OpenAI', () => {
   it('провайдер openai-compatible требует адрес службы', () => {
     expect(() => loadConfig({ ...base, AI_PROVIDER: 'openai-compatible' })).toThrow(/AI_BASE_URL/);

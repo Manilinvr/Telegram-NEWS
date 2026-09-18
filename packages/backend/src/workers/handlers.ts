@@ -15,6 +15,7 @@ import { IngestionService } from '../modules/ingestion/service.js';
 import { MediaProcessor } from '../modules/media/processor.js';
 import { DraftService, MODEL_UNAVAILABLE_ERROR } from '../modules/pipeline/draft-service.js';
 import { PublishingService } from '../modules/publishing/service.js';
+import { loadPublishingSettings } from '../modules/publishing/settings.js';
 import { EventBuilder } from '../modules/pipeline/event-builder.js';
 import { createStorageDriver } from '../modules/storage/driver.js';
 import { TranscriptionService } from '../modules/transcription/service.js';
@@ -143,6 +144,52 @@ export function createHandlers(db: Database, config: AppConfig): {
     return rows.length;
   }
 
+  /**
+   * Поставить на автопубликацию материалы, уже ждущие модератора.
+   *
+   * Задача автопубликации ставится при создании черновика, поэтому
+   * включённый позже переключатель не действовал ни на что: очередь
+   * молчала, и со стороны это выглядело как «автопубликация не
+   * работает». Здесь очередь подхватывается целиком.
+   *
+   * Условия отправки проверяются не тут, а в PublishingService при
+   * выполнении задачи: ключ дедупликации не даёт поставить вторую
+   * задачу на то же событие.
+   */
+  async function scheduleAutoPublishForPending(): Promise<number> {
+    const settings = await loadPublishingSettings(db);
+    if (!settings.autoPublish) return 0;
+
+    const rows = await db.many(
+      `SELECT m.event_id
+         FROM moderation_queue m
+         JOIN ai_drafts d ON d.event_id = m.event_id AND d.is_current
+         JOIN events e ON e.id = m.event_id
+        WHERE m.status = 'PENDING'
+          AND e.status = 'PROCESSED'
+          AND d.confidence >= $1
+        ORDER BY m.created_at
+        LIMIT 20`,
+      [settings.minConfidence],
+    );
+
+    for (const row of rows) {
+      await queue.enqueue({
+        type: JOB_TYPES.AUTO_PUBLISH,
+        stage: PIPELINE_STAGE.TELEGRAM_PUBLISH,
+        payload: { eventId: String(row.event_id) },
+        dedupeKey: `autopublish:${String(row.event_id)}`,
+        delaySeconds: settings.delayMinutes * 60,
+        priority: 500,
+      });
+    }
+
+    if (rows.length > 0) {
+      log.info({ count: rows.length }, 'Материалы из очереди поставлены на автопубликацию');
+    }
+    return rows.length;
+  }
+
   const handlers: Record<string, JobHandler> = {
     /** Опрос одного источника. */
     [JOB_TYPES.SYNC_SOURCE]: async (payload) => {
@@ -243,7 +290,7 @@ export function createHandlers(db: Database, config: AppConfig): {
     [JOB_TYPES.CLEANUP]: async () => {
       const sessionsRepo = new SessionsRepository(db);
       const moderationRepo = new ModerationRepository(db);
-      const [sessions, jobs, stale, expired, redrafted] = await Promise.all([
+      const [sessions, jobs, stale, expired, redrafted, autoQueued] = await Promise.all([
         sessionsRepo.cleanup(),
         queue.purgeCompleted(7),
         queue.recoverStale(15),
@@ -251,9 +298,13 @@ export function createHandlers(db: Database, config: AppConfig): {
         // чтобы очередь начинала день пустой.
         moderationRepo.expireStale(),
         requeueRulesDrafts(),
+        scheduleAutoPublishForPending(),
       ]);
-      log.info({ sessions, jobs, stale, expired, redrafted }, 'Обслуживание выполнено');
-      return { sessions, jobs, stale, expired, redrafted };
+      log.info(
+        { sessions, jobs, stale, expired, redrafted, autoQueued },
+        'Обслуживание выполнено',
+      );
+      return { sessions, jobs, stale, expired, redrafted, autoQueued };
     },
   };
 
