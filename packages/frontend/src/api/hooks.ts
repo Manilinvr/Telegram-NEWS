@@ -320,10 +320,49 @@ export function useDiagnostics() {
   });
 }
 
+export interface AiCheckResult {
+  ok: boolean;
+  provider: string;
+  model: string | null;
+  reason?: string;
+  ms?: number;
+  configuredProvider: string;
+}
+
+/**
+ * Живая проверка модели по кнопке.
+ *
+ * Отдельным действием: это настоящий запрос к внешней службе, и делать
+ * его при каждом открытии страницы означало бы тратить лимит впустую.
+ */
+export function useAiCheck() {
+  return useMutation({
+    mutationFn: () => api.post<AiCheckResult>('/diagnostics/ai-check', {}),
+  });
+}
+
 export function useProcessingErrors() {
   return useQuery({
     queryKey: queryKeys.errors,
     queryFn: () => api.get<{ errors: ProcessingError[] }>('/diagnostics/errors').then((r) => r.errors),
+  });
+}
+
+/**
+ * Закрыть ошибки после того, как причина исправлена.
+ *
+ * Без этого журнал остаётся заполненным записями от прежней версии, и
+ * новая ошибка теряется среди сотен уже неактуальных.
+ */
+export function useResolveErrors() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (filter: { stage?: string; message?: string } = {}) =>
+      api.post<{ ok: boolean; resolved: number }>('/diagnostics/errors/resolve-all', filter),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.errors });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.diagnostics });
+    },
   });
 }
 

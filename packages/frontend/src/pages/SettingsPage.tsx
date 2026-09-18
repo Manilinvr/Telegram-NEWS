@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  useAiCheck,
   useAuditLog,
   useCategories,
   useChangePassword,
@@ -28,6 +29,7 @@ export function SettingsPage() {
   const audit = useAuditLog();
   const updateSetting = useUpdateSetting();
   const profanityTest = useProfanityTest();
+  const aiCheck = useAiCheck();
   const changePassword = useChangePassword();
   const logout = useLogout();
 
@@ -107,10 +109,20 @@ export function SettingsPage() {
                     <span className="info-grid__key">Провайдер AI</span>
                     <span className="info-grid__value">
                       {String(runtime?.aiProvider ?? '—')}
-                      {runtime?.aiProvider === 'mock' && (
+                      {runtime?.aiProvider === 'mock' ? (
                         <>
                           {' '}
                           <Badge tone="warning">правила вместо модели</Badge>
+                        </>
+                      ) : runtime?.aiReason ? (
+                        <>
+                          {' '}
+                          <Badge tone="danger">не настроен: {String(runtime.aiReason)}</Badge>
+                        </>
+                      ) : (
+                        <>
+                          {' '}
+                          <Badge tone="success">настроен</Badge>
                         </>
                       )}
                     </span>
@@ -143,6 +155,40 @@ export function SettingsPage() {
                     <span className="info-grid__key">Хранилище медиа</span>
                     <span className="info-grid__value">{String(runtime?.storageDriver ?? '—')}</span>
                   </div>
+                </div>
+
+                <div className="detail-section">
+                  <div className="detail-section__title">Проверка связи с моделью</div>
+                  <p className="field__hint">
+                    Настройки модели задаются переменными окружения на хостинге, и опечатка
+                    в ключе или названии модели не видна: система продолжает работать по
+                    правилам и выглядит исправной. Кнопка отправляет один короткий запрос
+                    и показывает ответ службы как есть.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    style={{ marginTop: 'var(--space-2)' }}
+                    disabled={aiCheck.isPending}
+                    onClick={() => aiCheck.mutate()}
+                  >
+                    {aiCheck.isPending ? 'Проверяем…' : 'Проверить модель'}
+                  </button>
+
+                  {aiCheck.data && (
+                    <div style={{ marginTop: 'var(--space-3)' }}>
+                      <Alert tone={aiCheck.data.ok ? 'success' : 'danger'}>
+                        {aiCheck.data.ok
+                          ? `Модель ${aiCheck.data.model ?? ''} ответила за ${aiCheck.data.ms ?? 0} мс — разбор идёт моделью.`
+                          : `Модель не отвечает: ${aiCheck.data.reason ?? 'причина не указана'} Пока это так, разбор идёт по правилам.`}
+                      </Alert>
+                    </div>
+                  )}
+                  {aiCheck.error && (
+                    <div style={{ marginTop: 'var(--space-3)' }}>
+                      <Alert tone="danger">{(aiCheck.error as Error).message}</Alert>
+                    </div>
+                  )}
                 </div>
 
                 <div className="detail-section">

@@ -49,6 +49,29 @@ export class OpsRepository {
     return rows.map(mapProcessingError);
   }
 
+  /**
+   * Закрыть все неразобранные ошибки разом.
+   *
+   * Нужно потому, что исправленная причина не убирает уже записанные
+   * ошибки: после починки в журнале остаются сотни одинаковых записей от
+   * прежней версии, и на их фоне не видно новую, настоящую. Закрывать их
+   * по одной бессмысленно — они отличаются только временем.
+   *
+   * Записи не удаляются, а помечаются разобранными: журнал ошибок — это
+   * доказательство того, что происходило, и терять его нельзя.
+   */
+  async resolveAllErrors(filter: { stage?: string; message?: string } = {}): Promise<number> {
+    const result = await this.db.query(
+      `UPDATE processing_errors
+          SET is_resolved = true, resolved_at = now()
+        WHERE NOT is_resolved
+          AND ($1::text IS NULL OR stage = $1)
+          AND ($2::text IS NULL OR message = $2)`,
+      [filter.stage ?? null, filter.message ?? null],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async resolveError(id: string): Promise<void> {
     await this.db.query(
       'UPDATE processing_errors SET is_resolved = true, resolved_at = now() WHERE id = $1',

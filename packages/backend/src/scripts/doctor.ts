@@ -12,6 +12,7 @@ import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { loadConfig, type AppConfig } from '../config/env.js';
 import { createDatabase, type Database } from '../db/pool.js';
+import { AiProcessor } from '../modules/ai/processor.js';
 
 type Level = 'ok' | 'warn' | 'fail';
 
@@ -246,13 +247,29 @@ try {
   });
 }
 
-add({
-  level: config.AI_PROVIDER === 'mock' ? 'warn' : 'ok',
-  title: `Разбор новостей: ${config.AI_PROVIDER === 'mock' ? 'по правилам (модель не подключена)' : `модель ${config.AI_MODEL}`}`,
-  ...(config.AI_PROVIDER === 'mock'
-    ? { action: 'Система работает, но качество черновиков ниже. Подключение — docs/SETUP-AI.md.' }
-    : {}),
-});
+// Модель проверяется не по наличию переменных, а обращением к службе:
+// неверный ключ, исчерпанный баланс и незнакомое название модели видны
+// только в её ответе. Без этого установка с опечаткой выглядит готовой,
+// а разбор молча идёт по правилам.
+if (config.AI_PROVIDER === 'mock') {
+  add({
+    level: 'warn',
+    title: 'Разбор новостей: по правилам (модель не подключена)',
+    action: 'Система работает, но качество черновиков ниже. Подключение — docs/SETUP-AI.md.',
+  });
+} else {
+  const aiCheck = await new AiProcessor(config, []).check();
+  add({
+    level: aiCheck.ok ? 'ok' : 'fail',
+    title: aiCheck.ok
+      ? `Разбор новостей: модель ${aiCheck.model ?? config.AI_MODEL} отвечает (${aiCheck.ms ?? 0} мс)`
+      : `Разбор новостей: модель ${config.AI_MODEL} не отвечает — материалы будут разбираться по правилам`,
+    ...(aiCheck.ok ? {} : { detail: aiCheck.reason ?? '' }),
+    ...(aiCheck.ok
+      ? {}
+      : { action: 'Проверьте AI_BASE_URL, AI_API_KEY и AI_MODEL — docs/SETUP-AI.md.' }),
+  });
+}
 
 const telegramReady = Boolean(config.TELEGRAM_PUBLISH_BOT_TOKEN && config.TELEGRAM_PUBLISH_CHANNEL);
 add({

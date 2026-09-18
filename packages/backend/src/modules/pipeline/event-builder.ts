@@ -16,6 +16,7 @@ import {
   type DedupVerdict,
 } from '../dedup/engine.js';
 import type { EmbeddingRepository } from '../dedup/repository.js';
+import { resolveCategorySlug } from './category-slug.js';
 
 const log = childLogger({ module: 'event-builder' });
 
@@ -83,8 +84,17 @@ export class EventBuilder {
       ? classification.entities
       : extractEntities(post.rawText);
 
+    // Категория обязана существовать в справочнике: на неё ссылается
+    // внешний ключ source_posts.category_slug. Модель называет категорию
+    // словом и иногда придумывает своё («происшествие», «incidents»), а
+    // справочник мог быть отредактирован в настройках уже после того, как
+    // список ушёл в модель. Незнакомое значение поэтому не пишется в базу:
+    // раньше это роняло разбор КАЖДОЙ такой публикации с нарушением ключа,
+    // и материал терялся вместо того, чтобы дойти до модератора.
+    const categorySlug = resolveCategorySlug(classification.category, categories);
+
     await this.posts.setClassification(postId, {
-      categorySlug: classification.category,
+      categorySlug,
       importance: classification.importance,
       entities,
       normalizedText: normalized,
@@ -114,7 +124,7 @@ export class EventBuilder {
       post,
       embedding,
       entities,
-      categorySlug: classification.category,
+      categorySlug,
       latitude: geo?.latitude ?? null,
       longitude: geo?.longitude ?? null,
       mediaChecksums: await this.mediaChecksums(postId),
@@ -141,7 +151,7 @@ export class EventBuilder {
       const event = await this.events.create({
         title: truncate(classification.headline || firstSentence(post.rawText), 190),
         summary: truncate(normalized, 600),
-        categorySlug: classification.category,
+        categorySlug,
         importance: classification.importance,
         occurredAt: post.postedAt,
         firstReportedAt: post.postedAt,
@@ -342,3 +352,4 @@ function buildEntityIdf(sets: string[][]): Map<string, number> {
   }
   return idf;
 }
+

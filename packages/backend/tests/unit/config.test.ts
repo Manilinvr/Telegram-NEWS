@@ -159,6 +159,28 @@ describe('Бесплатный разбор новостей через служ
     expect(config.AI_BASE_URL).toBe('https://api.groq.com/openai/v1');
   });
 
+  it('требует название модели: значение по умолчанию понимает только Anthropic', () => {
+    expect(() =>
+      loadConfig({
+        ...base,
+        AI_PROVIDER: 'openai-compatible',
+        AI_BASE_URL: 'https://api.deepseek.com/v1',
+      }),
+    ).toThrow(/AI_MODEL/);
+  });
+
+  it('настройки DeepSeek принимаются целиком', () => {
+    const config = loadConfig({
+      ...base,
+      AI_PROVIDER: 'openai-compatible',
+      AI_BASE_URL: 'https://api.deepseek.com/v1',
+      AI_API_KEY: 'sk-deepseek',
+      AI_MODEL: 'deepseek-chat',
+    });
+    expect(config.AI_MODEL).toBe('deepseek-chat');
+    expect(config.AI_API_KEY).toBe('sk-deepseek');
+  });
+
   it('обращается к службе и возвращает её ответ', async () => {
     const seen: { url?: string; auth?: string; body?: Record<string, unknown> } = {};
     const server = createServer((req, res) => {
@@ -205,7 +227,12 @@ describe('Бесплатный разбор новостей через служ
 
     try {
       const provider = new OpenAiCompatibleProvider(
-        loadConfig({ ...base, AI_PROVIDER: 'openai-compatible', AI_BASE_URL: 'http://127.0.0.1:4714' }),
+        loadConfig({
+          ...base,
+          AI_PROVIDER: 'openai-compatible',
+          AI_BASE_URL: 'http://127.0.0.1:4714',
+          AI_MODEL: 'free-model',
+        }),
       );
       await expect(provider.complete({ system: 's', user: 'u' })).rejects.toThrow(
         /429.*Rate limit exceeded/s,
