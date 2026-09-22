@@ -290,13 +290,16 @@ export function createHandlers(db: Database, config: AppConfig): {
     [JOB_TYPES.CLEANUP]: async () => {
       const sessionsRepo = new SessionsRepository(db);
       const moderationRepo = new ModerationRepository(db);
+      // Срок хранения в очереди — настройка, а не календарная полночь:
+      // новость, появившаяся поздно вечером, не должна отклоняться через
+      // десять минут только потому, что начались новые сутки.
+      const publishingSettings = await loadPublishingSettings(db);
+
       const [sessions, jobs, stale, expired, redrafted, autoQueued] = await Promise.all([
         sessionsRepo.cleanup(),
         queue.purgeCompleted(7),
         queue.recoverStale(15),
-        // Вчерашние нерассмотренные материалы уходят в «Отклонённые»,
-        // чтобы очередь начинала день пустой.
-        moderationRepo.expireStale(),
+        moderationRepo.expireStale(publishingSettings.autoRejectAfterHours),
         requeueRulesDrafts(),
         scheduleAutoPublishForPending(),
       ]);

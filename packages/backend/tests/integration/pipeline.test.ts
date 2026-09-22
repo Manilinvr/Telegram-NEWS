@@ -830,7 +830,7 @@ describe('Ежедневная очистка очереди модерации'
        VALUES ('TELEGRAM','Тест','t','https://t.me/t', true) RETURNING id`,
     );
 
-    // Две записи: одна создана до сегодняшней полуночи по Москве, другая после.
+    // Две записи: одна пролежала дольше срока, другая появилась только что.
     const mkEvent = async (title: string) =>
       db.one<{ id: string }>(
         `INSERT INTO events (title, summary, category_slug, importance, occurred_at,
@@ -844,9 +844,7 @@ describe('Ежедневная очистка очереди модерации'
 
     await db.query(
       `INSERT INTO moderation_queue (event_id, status, priority, created_at)
-       VALUES ($1,'PENDING','MEDIUM',
-               (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow') - interval '1 hour')
-                 AT TIME ZONE 'Europe/Moscow')`,
+       VALUES ($1,'PENDING','MEDIUM', now() - interval '30 hours')`,
       [yesterday.id],
     );
     await db.query(
@@ -855,7 +853,7 @@ describe('Ежедневная очистка очереди модерации'
       [today.id],
     );
 
-    const closed = await moderation.expireStale();
+    const closed = await moderation.expireStale(24);
     expect(closed).toBe(1);
 
     const rows = await db.many<{ status: string; rejection_reason: string | null; title: string }>(
@@ -866,8 +864,14 @@ describe('Ежедневная очистка очереди модерации'
     const byTitle = new Map(rows.map((r) => [r.title, r]));
     expect(byTitle.get('Вчерашнее')?.status).toBe('REJECTED');
     expect(byTitle.get('Вчерашнее')?.rejection_reason).toMatch(/Автоочистка/);
-    // Сегодняшнее остаётся в работе — иначе очередь опустела бы среди дня.
+    // Свежее остаётся в работе. Раньше срок считался по календарю, и
+    // вечерняя новость отклонялась через десять минут — сразу после
+    // полуночи, — из-за чего очередь к утру оказывалась пустой.
     expect(byTitle.get('Сегодняшнее')?.status).toBe('PENDING');
+
+    // Ноль часов отключает автоочистку целиком.
+    await db.query(`UPDATE moderation_queue SET status = 'PENDING'`);
+    expect(await moderation.expireStale(0)).toBe(0);
 
     await db.query('DELETE FROM sources WHERE id = $1', [source.id]);
   });
