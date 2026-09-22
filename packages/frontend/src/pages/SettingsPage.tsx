@@ -87,6 +87,7 @@ export function SettingsPage() {
           autoPublish: next.autoPublish,
           minConfidence: next.minConfidence,
           delayMinutes: next.delayMinutes,
+          draftDelaySeconds: next.draftDelaySeconds,
           autoRejectAfterHours: next.autoRejectAfterHours,
         },
         ...(needPassword ? { confirmPassword: publishPassword } : {}),
@@ -554,6 +555,42 @@ export function SettingsPage() {
                         </span>
                       </>
                     )}
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label" htmlFor="draft-delay">
+                      Ждать перед сборкой черновика
+                    </label>
+                    <select
+                      id="draft-delay"
+                      className="select"
+                      value={publishing.draftDelaySeconds}
+                      onChange={(event) =>
+                        setPublishing({
+                          ...publishing,
+                          draftDelaySeconds: Number(event.target.value),
+                        })
+                      }
+                    >
+                      <option value={0}>без паузы — собирать сразу</option>
+                      {[30, 60, 90, 180, 300].map((value) => (
+                        <option key={value} value={value}>
+                          {/* Округление вниз давало «90 сек» → «2 мин»: секунды
+                              показываются как есть, если не делятся на минуту
+                              без остатка. */}
+                          {value % 60 === 0 ? `${value / 60} мин` : `${value} сек`}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="field__hint">
+                      Действует на КАЖДОЕ событие, не только на автопубликацию: это пауза
+                      между тем, как публикация превратилась в событие, и тем, как модель
+                      напишет по ней черновик. Она даёт второму каналу «догнать» то же
+                      происшествие, чтобы черновик собрался сразу по нескольким
+                      публикациям, а не раздвоился. Для срочной новости, где второго
+                      источника не будет, та же пауза — просто задержка перед модерацией:
+                      поставьте 0, и черновик появится в очереди сразу.
+                    </p>
                   </div>
 
                   <div className="field">
