@@ -10,6 +10,7 @@ import { OpsRepository } from '../../repositories/ops.js';
 import { PostsRepository } from '../../repositories/posts.js';
 import type { AiProcessor } from '../ai/processor.js';
 import { loadAiSettings } from '../ai/ai-settings.js';
+import { loadPublishingSettings } from '../publishing/settings.js';
 import {
   compareForDedup,
   normalizeEntity,
@@ -217,14 +218,19 @@ export class EventBuilder {
     // Черновик генерируется отдельной задачей: объединение публикаций
     // может продолжиться, и переписывать текст на каждую из них не нужно.
     if (outcome.eventId) {
+      // Пауза настраивается (Публикация → «Ждать перед сборкой
+      // черновика»): для одиночного срочного источника её разумно
+      // выключить, а для ленты, где одно происшествие обычно освещают
+      // несколько каналов, — оставить, чтобы черновик строился сразу по
+      // нескольким публикациям, а не дробился на дубли.
+      const { draftDelaySeconds } = await loadPublishingSettings(this.db);
+
       await this.queue.enqueue({
         type: JOB_TYPES.GENERATE_DRAFT,
         stage: PIPELINE_STAGE.AI_DRAFT,
         payload: { eventId: outcome.eventId },
         dedupeKey: `draft:${outcome.eventId}`,
-        // Небольшая задержка даёт другим источникам «догнать» событие,
-        // чтобы черновик строился сразу по нескольким публикациям.
-        delaySeconds: 90,
+        delaySeconds: draftDelaySeconds,
       });
     }
 

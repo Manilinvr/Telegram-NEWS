@@ -6,6 +6,29 @@ import { IconPlus, IconRefresh, IconTelegram, IconVk } from '../components/ui/Ic
 import { formatRelative, SOURCE_HEALTH_LABELS, sourceColor, sourceInitials } from '../lib/format.js';
 
 /**
+ * Интервал опроса — как часто система проверяет источник на новые
+ * публикации. Короче для срочных каналов (ДТП, происшествия), где важна
+ * скорость; длиннее для тех, где пропустить минуту не страшно, — так
+ * реже расходуется квота площадки и меньше нагрузка на воркер.
+ */
+const POLL_INTERVAL_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 15, label: '15 сек — самые срочные' },
+  { value: 30, label: '30 сек' },
+  { value: 60, label: '1 мин — по умолчанию' },
+  { value: 120, label: '2 мин' },
+  { value: 300, label: '5 мин' },
+  { value: 900, label: '15 мин' },
+  { value: 3600, label: '1 час — редко обновляемые' },
+];
+
+/** Интервал опроса коротко, для строки списка: «60 сек», «15 мин». */
+function formatPollInterval(seconds: number): string {
+  if (seconds < 60) return `${seconds} сек`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
+  return `${Math.round(seconds / 3600)} ч`;
+}
+
+/**
  * Управление источниками (ТЗ §1).
  *
  * При добавлении источник проверяется на доступность ДО сохранения: иначе
@@ -20,7 +43,13 @@ export function SourcesPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
-  const [form, setForm] = useState({ type: 'TELEGRAM', title: '', username: '', url: '' });
+  const [form, setForm] = useState({
+    type: 'TELEGRAM',
+    title: '',
+    username: '',
+    url: '',
+    pollIntervalSeconds: 60,
+  });
   // Правка существующего источника: канал переименовали или сменил адрес —
   // раньше приходилось удалять его вместе со всеми собранными публикациями
   // и заводить заново.
@@ -29,6 +58,7 @@ export function SourcesPage() {
     title: string;
     username: string;
     url: string;
+    pollIntervalSeconds: number;
   } | null>(null);
 
   const handleCreate = async (event: FormEvent) => {
@@ -40,9 +70,10 @@ export function SourcesPage() {
         title: form.title,
         username: form.username.replace(/^@/, '') || null,
         url: form.url,
+        pollIntervalSeconds: form.pollIntervalSeconds,
       });
       setNotice({ tone: 'success', text: 'Источник добавлен, выполняется первый опрос.' });
-      setForm({ type: 'TELEGRAM', title: '', username: '', url: '' });
+      setForm({ type: 'TELEGRAM', title: '', username: '', url: '', pollIntervalSeconds: 60 });
       setShowForm(false);
     } catch (error) {
       setNotice({ tone: 'danger', text: (error as Error).message });
@@ -58,6 +89,7 @@ export function SourcesPage() {
         title: editing.title,
         username: editing.username.replace(/^@/, '') || null,
         url: editing.url,
+        pollIntervalSeconds: editing.pollIntervalSeconds,
       });
       setNotice({ tone: 'success', text: 'Источник изменён.' });
       setEditing(null);
@@ -199,6 +231,31 @@ export function SourcesPage() {
                 />
               </div>
 
+              <div className="field">
+                <label className="field__label" htmlFor="source-poll-interval">
+                  Как часто опрашивать
+                </label>
+                <select
+                  id="source-poll-interval"
+                  className="select"
+                  value={form.pollIntervalSeconds}
+                  onChange={(event) =>
+                    setForm({ ...form, pollIntervalSeconds: Number(event.target.value) })
+                  }
+                >
+                  {POLL_INTERVAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="field__hint">
+                  От появления публикации до попадания в обработку проходит до одного
+                  интервала. Для срочного канала — 15–30 секунд; для остальных обычно
+                  хватает минуты.
+                </span>
+              </div>
+
               <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 <button type="submit" className="btn btn--primary" disabled={create.isPending}>
                   {create.isPending ? 'Проверка доступности…' : 'Добавить источник'}
@@ -254,6 +311,26 @@ export function SourcesPage() {
                 />
               </div>
 
+              <div className="field">
+                <label className="field__label" htmlFor="edit-poll-interval">
+                  Как часто опрашивать
+                </label>
+                <select
+                  id="edit-poll-interval"
+                  className="select"
+                  value={editing.pollIntervalSeconds}
+                  onChange={(event) =>
+                    setEditing({ ...editing, pollIntervalSeconds: Number(event.target.value) })
+                  }
+                >
+                  {POLL_INTERVAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                 <button type="submit" className="btn btn--primary" disabled={update.isPending}>
                   {update.isPending ? 'Сохранение…' : 'Сохранить'}
@@ -293,8 +370,8 @@ export function SourcesPage() {
                     </span>
                     <span className="list-row__meta">
                       {source.username ? `@${source.username}` : source.url} · публикаций:{' '}
-                      {source.postsFetched} · последняя синхронизация:{' '}
-                      {formatRelative(source.lastSuccessfulSyncAt)}
+                      {source.postsFetched} · опрос раз в {formatPollInterval(source.pollIntervalSeconds)}
+                      {' '}· последняя синхронизация: {formatRelative(source.lastSuccessfulSyncAt)}
                     </span>
                     {source.lastError && (
                       <span className="list-row__meta" style={{ color: 'var(--danger)' }}>
@@ -317,6 +394,37 @@ export function SourcesPage() {
                     {SOURCE_HEALTH_LABELS[source.health] ?? source.health}
                   </Badge>
 
+                  {/*
+                    Учитывать источник в сборе или нет — явным переключателем,
+                    а не текстом кнопки среди прочих действий: раньше он был
+                    последним по счёту рядом с «Удалить», и в списке из
+                    десятка источников его не замечали.
+                  */}
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      color: source.isActive ? 'var(--text-secondary)' : 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={
+                      source.isActive
+                        ? 'Источник опрашивается. Снимите отметку, чтобы приостановить сбор, не удаляя источник.'
+                        : 'Источник не опрашивается. Отметьте, чтобы возобновить сбор.'
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={source.isActive}
+                      disabled={update.isPending}
+                      onChange={() => update.mutate({ id: source.id, isActive: !source.isActive })}
+                    />
+                    {source.isActive ? 'Собирается' : 'Не собирается'}
+                  </label>
+
                   <button
                     type="button"
                     className="btn btn--sm btn--icon"
@@ -335,18 +443,11 @@ export function SourcesPage() {
                         title: source.title,
                         username: source.username ?? '',
                         url: source.url ?? '',
+                        pollIntervalSeconds: source.pollIntervalSeconds,
                       })
                     }
                   >
                     Изменить
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    onClick={() => update.mutate({ id: source.id, isActive: !source.isActive })}
-                  >
-                    {source.isActive ? 'Выключить' : 'Включить'}
                   </button>
 
                   <button

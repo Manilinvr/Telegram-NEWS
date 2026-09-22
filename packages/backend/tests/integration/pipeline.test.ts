@@ -249,6 +249,50 @@ describe('Объединение публикаций в события', () => 
     // Оригинальная ссылка обязана сохраняться.
     expect(sources[0]!.originalUrl).toContain('t.me/test_channel');
   });
+
+  it('по умолчанию сборка черновика откладывается — второй источник успевает подтянуться', async () => {
+    adapter.setPosts([
+      makePost({ id: '2006', minutesAgo: 5, text: 'Во дворе на Анапском шоссе упало дерево, повреждён забор.' }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+
+    const job = await db.one<{ run_at: Date; created_at: Date }>(
+      `SELECT run_at, created_at FROM processing_jobs
+        WHERE type = 'draft.generate' AND payload->>'eventId' = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [eventId],
+    );
+    const delaySeconds = (new Date(job.run_at).getTime() - new Date(job.created_at).getTime()) / 1000;
+
+    // Значение по умолчанию (90 сек) даёт второму каналу «догнать» то же
+    // происшествие, чтобы черновик собрался по обеим публикациям сразу.
+    expect(delaySeconds).toBeGreaterThan(60);
+    expect(delaySeconds).toBeLessThan(120);
+  });
+
+  it('нулевая настройка задержки собирает черновик без паузы — для срочных источников', async () => {
+    await new OpsRepository(db).setSetting(
+      'publishing',
+      { autoPublish: false, minConfidence: 0.85, delayMinutes: 10, draftDelaySeconds: 0, autoRejectAfterHours: 24 },
+      { isCritical: true },
+    );
+
+    adapter.setPosts([
+      makePost({ id: '2007', minutesAgo: 2, text: 'На Анапском шоссе прорвало трубу, вода заливает проезжую часть.' }),
+    ]);
+    const [eventId] = await ingestAndProcess();
+
+    const job = await db.one<{ run_at: Date; created_at: Date }>(
+      `SELECT run_at, created_at FROM processing_jobs
+        WHERE type = 'draft.generate' AND payload->>'eventId' = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [eventId],
+    );
+    const delaySeconds = (new Date(job.run_at).getTime() - new Date(job.created_at).getTime()) / 1000;
+
+    // Задача сразу доступна для выполнения, а не ждёт «второй источник».
+    expect(delaySeconds).toBeLessThan(5);
+  });
 });
 
 describe('Черновик и обязательная проверка лексики', () => {
