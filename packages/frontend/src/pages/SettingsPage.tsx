@@ -87,6 +87,7 @@ export function SettingsPage() {
           autoPublish: next.autoPublish,
           minConfidence: next.minConfidence,
           delayMinutes: next.delayMinutes,
+          autoRejectAfterHours: next.autoRejectAfterHours,
         },
         ...(needPassword ? { confirmPassword: publishPassword } : {}),
       });
@@ -600,6 +601,34 @@ export function SettingsPage() {
                     <p className="field__hint">
                       За это время событие успевает дополниться публикациями других каналов,
                       а вы — вмешаться. Пост, ушедший мгновенно, рискует оказаться неполным.
+                    </p>
+                  </div>
+
+                  <div className="field">
+                    <label className="field__label" htmlFor="auto-reject">
+                      Автоочистка очереди модерации
+                    </label>
+                    <select
+                      id="auto-reject"
+                      className="select"
+                      value={publishing.autoRejectAfterHours}
+                      onChange={(event) =>
+                        setPublishing({
+                          ...publishing,
+                          autoRejectAfterHours: Number(event.target.value),
+                        })
+                      }
+                    >
+                      <option value={0}>не отклонять — очередь копится</option>
+                      {[12, 24, 48, 72, 168].map((value) => (
+                        <option key={value} value={value}>
+                          отклонять нерассмотренные через {value} ч
+                        </option>
+                      ))}
+                    </select>
+                    <p className="field__hint">
+                      Отклонённые материалы не удаляются: они лежат в разделе
+                      «Отклонённые» и возвращаются в очередь одним действием.
                     </p>
                   </div>
 

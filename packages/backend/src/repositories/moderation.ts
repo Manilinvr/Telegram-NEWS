@@ -87,16 +87,29 @@ export class ModerationRepository {
    * Граница — полночь по Москве, а не «сутки назад»: город живёт по
    * московскому времени, и лента должна начинаться с начала дня.
    */
-  async expireStale(): Promise<number> {
+  /**
+   * Отклонить материалы, пролежавшие в очереди дольше заданного срока.
+   *
+   * Считается возраст материала, а не календарная дата. Прежний вариант
+   * чистил очередь в полночь — и новость, появившаяся в 23:50, получала
+   * десять минут на рассмотрение. Со стороны это выглядело как «новости
+   * перестали приходить»: утром очередь оказывалась пустой.
+   *
+   * Ноль часов отключает автоочистку: очередь растёт, но ничего не
+   * теряется. Материалы не удаляются в любом случае — они переходят в
+   * «Отклонённые» и возвращаются оттуда одним действием.
+   */
+  async expireStale(afterHours: number): Promise<number> {
+    if (afterHours <= 0) return 0;
+
     const result = await this.db.query(
       `UPDATE moderation_queue
           SET status           = 'REJECTED',
               rejection_reason = $1,
               updated_at       = now()
         WHERE status IN ('PENDING', 'IN_REVIEW')
-          AND created_at <
-              (date_trunc('day', now() AT TIME ZONE 'Europe/Moscow')) AT TIME ZONE 'Europe/Moscow'`,
-      ['Автоочистка: материал не рассмотрен до конца суток'],
+          AND created_at < now() - ($2::int * interval '1 hour')`,
+      [`Автоочистка: материал не рассмотрен за ${afterHours} ч`, afterHours],
     );
     return result.rowCount ?? 0;
   }
